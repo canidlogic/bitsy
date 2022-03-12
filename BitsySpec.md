@@ -1,159 +1,156 @@
 # Bitsy Encoding Specification
 
-Bitsy is a method for encoding case-sensitive, Unicode file names in environments that might be case insensitive or not reliably support Unicode.
+Bitsy is a method for encoding case-sensitive, Unicode file names in environments that might be case insensitive or not reliably support Unicode.  It also works around a number of platform-specific quirks regarding file names.
 
-## Exceptional file name encoding
+The encoded Bitsy file name always follows the constraints documented in `StrictName.md`, such that it should work reliably on all modern platforms.  The original file name can be any sequence of Unicode codepoints, with only the following limitations:
 
-If the file name is the special file name `.` or `..` then the Bitsy encoding is exactly the same as the input.
+> __Limitation 1:__ No ASCII control codes in range [U+0000, U+001F] nor the control code U+007F may be used.
+>
+> __Limitation 2:__ Neither forward slash `/` nor backslash `\` may be used, since those are conventionally reserved as path separator characters.
+>
+> __Limitation 3:__ Codepoints in surrogate range [U+D800, U+DFFF] are not allowed, but supplemental codepoints in range [U+10000, U+10FFFF] _are_ allowed.
+>
+> __Limitation 4:__ There must be at least one character in the file name.
+>
+> __Limitation 5:__ There must be at most 255 characters in the file name.
 
-Skip the rest of encoding if any exceptional file name is encountered.
+Bitsy is a technique for taking file names that obey only the above five limitations and encoding them such that they obey all the limitations in `StrictName.md`.  The encoding can then be used to reconstruct the original file name, including the original case of all letters even if the underlying file system is case-insensitive.
 
-## Unicode normalization
+Bitsy encoding will fail if the encoded file name exceeds 255 characters.  This may happen even if the original file name satisfied all five limitations noted above.  Unfortunately, there is no easy way to know whether a file name will exceed this limit after encoding, apart from actually attempting the encoding.
 
-Any surrogate pairs that are present in the input file name are replaced by the supplemental codepoint they select.  Surrogates that do not form a proper surrogate pair cause Bitsy encoding to fail.
+## Pass-through encoding
 
-After surrogates have been corrected to supplementals, the whole input file name is run through NFC Unicode normalization.
+If the Bitsy encoding is exactly the same as the original file name, then this particular original file name has _pass-through encoding._  Pass-through encoding is used when the original file name satisfies all the constraints in `StrictName.md` __AND__ both of the following extra constraints:
 
-## Control code and separator filtering
+> __Extra constraint 1:__ If the original file name has any letters in it, all letters are lowercase.
+>
+> __Extra constraint 2:__ If the original file name has at least four characters, the first four characters are neither `xz--` nor `xq--`
 
-Input file names are not allowed to have any C0 control codes.  Specifically, this is U+0000 up to and including U+001F, as well as the codepoint U+007F.  Bitsy encoding fails if any of these control codes is present in the input file name.
+If all the StrictName constraints and both these extra constraints are satisfied, then the Bitsy encoding of a file name is exactly the same as the original file name.  Skip all subsequent encoding steps in this case.
 
-Input file names are not allowed to have forward slash `/` (U+002F) or backslash `\` (U+005C).  Both these characters are interpreted as path separators in Windows/DOS environments, and allowing them to be escaped would be a possible security risk.  UNIX technically would allow backslash in file names, but it is a bad idea not only for interoperability but also because backslash is frequently an escape symbol.
+Example of pass-through encoding:
 
-## File extension identification
+    example.txt (original) -> example.txt (Bitsy)
 
-The first step in Bitsy encoding after handling exceptional names is to split the file name into a _label_ and an _extension._  The only purpose of this split is to determine where to place suffixes at the end of the encoding process.  Suffixes will be placed at the end of the label and before the extension, so as to leave file extensions as intact as possible.  However, apart from that detail, the whole file name is encoded as a single string; labels and extensions are _not_ encoded separately.
+## Prefix encoding
 
-__Case 1:__  There is no ASCII period character `.` in the file name anywhere.
+If a given original file name satisfies all constraints for pass-through encoding __EXCEPT__ extra constraint 2, then _prefix encoding_ is used.  Since extra constraint 2 failed, the original file name in this case must have at least four characters, and the first four characters must be either `xz--` or `xq--`
 
-The whole file name is the label and the extension is an empty string in this case.
+Define the _suffix_ as `-z` or `-q` so that the letter in the suffix matches the second character of the original file name.  If there are no period characters in the file name, the suffix shall be added at the end of the file name.  Otherwise, the suffix shall be added immediately before the first period character.  (The first period character will never be the first character of the file name in prefix encoding, because prefix encoding is only used for file names that begin with `x`)
 
-__Case 2:__  There is only one ASCII period character in the file name and it is the first character.
+After the suffix is inserted, the second and final step in prefix encoding is to change the second letter of the file name to `q` if it is not already `q`
 
-The whole file name is the label and the extension is an empty string in this case.  The special file name `.` was handled earlier as an exceptional file name, so this case will never be applied to it.  On UNIX systems, a period at the start of a file name indicates a hidden file rather than an extension.
+Prefix encoding will be used if a file name that is already encoded with Bitsy is encoded a second time with Bitsy.  It is also used for file names that happen to have a four-character prefix matching the one of the two four-character prefixes used by Bitsy.  Prefix encoding will fail if the two additional characters required for the suffix cause the length of the encoded file name to exceed 255 characters.
 
-__Case 3:__ General case.
+Examples of prefix encoding:
 
-In all other cases, the following procedure is used.  Starting at the last character of the file name and moving to the _second_ character of the file name, identify a sequence of zero or more _extension components._  An extension component is a period followed by a sequence of one or more _extension characters,_ so when scanning backwards an extension component will be a sequence of one or more extension characters followed by a period.
+    xz--prefix.txt (original) -> xq--prefix-z.txt (Bitsy)
+    xq--reflexive-q (original) -> xq--reflexive-q-q (Bitsy)
 
-Extension characters are: all ASCII alphanumeric characters and ASCII underscore.  ASCII hyphen is _not_ included so that encoded delta suffixes (defined later) will not accidentally be confused as an extension.
+## Device encoding
 
-The extension in this case will be the period that begins the sequence of extension components, and the label will be everything before the extension.  Since the first character of the file name is excluded from extension component scanning, the label will always have at least one character in it.  However, the extension may end up being empty in this general case if there is not a single valid extension component at the end of the file name.
+If a given original file name satisfies all constraints for pass-through encoding __EXCEPT__ constraint 7 in `StrictName.md` then _device encoding_ is used.  This encoding is simply used to avoid reserved device names.
 
-## Device name escaping
+The first step is to add the suffix `-x` into the file name.  If the file name has any period characters, insert this suffix immediately before the first period in the file name; otherwise, append this suffix at the end of the file name.  (Since the file name is known to violate constraint 7 in this encoding case, the first character of the original file name will never be a period.)
 
-Let the _device candidate_ be a substring that is either the whole file name if the file name includes no period characters, or the substring up to but excluding the first period otherwise.  The device candidate is _not_ necessarily the same as the label found in the previous step &mdash; for example, the file name `three...dots` will have the label `three..`, the extension `.dots`, and the device candidate `three`  The device candidate might also be an empty string.
+The second and final step to this encoding is to insert the four-character prefix `xq--` at the start of the file name.  Bitsy encoding fails if either of these encoding steps causes the length of the encoded file name to exceed 255 characters.
 
-If the device candidate is a _case-insensitive_ match for any of the following, then _device name escaping_ is required:
+Examples of device encoding:
 
-- `AUX`
-- `COM1` `COM2` ... `COM9`
-- `CON`
-- `LPT1` `LPT2` ... `LPT9`
-- `NUL`
-- `PRN`
+    com2 (original) -> xq--com2-x (Bitsy)
+    nul.txt (original) -> xq--nul-x.txt (Bitsy)
 
-Device name escaping is not performed right away.  Instead, a flag is set indicating that it is required.  At the end of Bitsy encoding, a check is made whether device name escaping is set __and__ no Bitsy escape prefix has been added yet.  If this is the case, then a Bitsy escape `xd--` is prefixed to the file name.  If some other Bitsy escape prefix is already present at the end of encoding, then nothing is requried for device escaping.
+## General encoding procedure
 
-Device escaping works around an issue on Windows/DOS systems, where file names that begin with one of these special names are reinterpreted as naming a device rather than a file.  Device name escaping prevents this by adding the special `xd--` prefix.  When decoding a Bitsy name, an `xd--` prefix just needs to be dropped to get back the original name.
+If neither pass-through nor prefix nor device encoding can be used for a given original file name, then the general encoding procedure must be used.  The following subsections describe the encoding steps in the order they are performed.
 
-## Point substitution
+### Unicode normalization
 
-The first transformation that is done during Bitsy encoding is _point substitution._  Each ASCII period character `.` within the file name is either a _proper point_ or a _problem point._  Period characters that are followed by another period character are problem points, and a period character occuring as the last character within a file name is also a problem point.  All other periods are proper points.
+The first step of the general encoding procedure is to normalize the Unicode input.  First, make sure that the representation of supplemental codepoints is consistent.  Preferrably, supplemental codepoints are always encoded directly and no surrogates are present anywhere in the string.  On systems that do not support direct encoding of supplementals, make sure that all surrogates are properly paired.
 
-During point substitution, all problem points are replaced by the ASCII control code `SUB` (U+001A).  Proper points are left as-is.
+Second, run the Unicode input through Unicode normalization to NFC form.  After these normalization steps are complete, check that the resulting normalized Unicode string is at most 255 codepoints long, failing if this limit has been exceeded.
 
-A point that begins a file extension (defined earlier) will never be a problem point, because it will always be followed by a character that is not another point.
+Note that during the decoding process, the reconstructed original file name will be this normalized input form, _not_ the actual original string if the actual original string was not in normal form.
 
-During decoding, `SUB` characters will be replaced by ASCII periods to get back the original string.  Windows/DOS systems don't like file names that end with periods, and multiple periods in a row can be iffy, which is why they are substituted.
+### Dot conversion
 
-The special `.` and `..` file names are not affected by point substitution because they were handled as exceptional cases earlier.
+Initialize the _dot limit_ to the length of the input string after normalization.  Starting at the last ASCII period character in the file name and working backwards to the first, check whether each dot is a _proper_ dot.  A dot is _proper_ if when you take the substring that starts with that dot and runs to the end of the string, and then prefix the letter `a` to it, the result satisfies all the constraints in `StrictName.md`.  Each time you encounter a proper dot when running backwards in the string, update the dot limit to the index of the proper dot that was just located.  If you ever encounter a dot that is not proper, you may stop scanning backwards for further dots &mdash; do _not_ update the dot limit in this case.
 
-## Casing conversion
+After the proper dot limit has been determined through the method described above, go through the string from start to finish and replace any ASCII period characters that occur _before_ the dot limit with ASCII control code Record Separator (RS, U+001E).  Leave any dots at or beyond the dot limit as they are.
 
-The second transformation that is done during Bitsy encoding is _casing conversion._  The _casing state_ starts out as lowercase.  Whenever an ASCII letter character is encountered, check whether its case matches the casing state.  If the case matches, then nothing is done with that letter.  If the case does not match, then a _casing control_ is inserted before the letter.  The following casing control codes are supported:
+Also, if the first character is an ASCII period, it is _always_ changed to a RS control code, even if it is a proper dot.  File names that begin with a dot are used to represent hidden files on UNIX platforms, but these hidden files tend to have fixed names that should not be altered in any way.  In other words, pass-through encoding should always be used for these special hidden files.  Forcing hidden files to un-hide themselves if they are subject to the general encoding procedure of Bitsy can alert users of the potential problem rather than silently changing a hidden file name.
 
-- `ESC` (U+001B): invert case for one letter
+Dot conversion has the effect of converting any ASCII periods that are "problematic" into RS control codes while leaving alone any dots that may form part of a proper file extension at the end of the file name.  After this dot conversion step, if there are any ASCII periods that have not been turned into RS control codes, the first such period is always the start of the file extension.
+
+The special `.` and `..` names are never subject to dot conversion, because those names are always handled with pass-through encoding.
+
+### Note about hyphen constraints
+
+It might seem that we need to be concerned about "problematic" hyphens that might violate constraint 3 or 4 in `StrictName.md`.  However, the dot conversion process has already guaranteed that hyphens within the string are valid.  This section gives the reason behind that guarantee.
+
+The general encoding process will always add an `xz--` prefix to the start of the name at a later encoding stage.  Therefore, we never have to be concerned about the constraint that a hyphen may not be the first character of a StrictName.  Also, the general encoding process will always add a delta-encoded suffix prior to the file extension if present, or else to the end of the name.  We already know that any hyphens contained within the file extension are proper because this was verified during dot conversion.  The only hyphens that could be "problematic" would therefore occur before the delta-encoded suffix, so we never have to be concerned about the constraint that a hyphen may not be the last character of a StrictName.
+
+The only hyphen-related constraint that remains to concern us is that a hyphen may occur neither immediately before nor immediately after a period character.  During the dot conversion process, however, any period characters that occurred before the file extension were converted to the RS control code, which will later be dropped and encoded in the delta suffix.  We therefore do not need to worry about constraint 4, either.
+
+Therefore, the dot conversion process along with the Bitsy prefix and delta suffix that will be added later guarantee that all hyphens within the name will eventually satisfy the constraints.
+
+### Casing conversion
+
+After dot conversion, the next transformation that is done during Bitsy encoding is _casing conversion._  The _casing state_ starts out as lowercase.  Moving from the start of the string to the end, whenever an ASCII letter character is encountered, check whether its case matches the casing state.  If the case matches, then nothing is done with that letter.  If the case does not match, then a _casing control_ is inserted before the letter.  The following casing control codes are supported:
+
+- `SUB` (U+001A): invert case for one letter
 - `SI` (U+000F): switch to uppercase
 - `SO` (U+000E): switch to lowercase
 
-If the ASCII letter that has a different case is followed by at least one more ASCII letter with that same case, use either `SI` or `SO` co change the casing state to match the new sequence of letters.  Otherwise, use `ESC` to indicate the case is inverted from the casing state just for this one letter.
+If the ASCII letter that has a different case is followed by at least one more ASCII letter with that same case, use either `SI` or `SO` co change the casing state to match the new sequence of letters.  Otherwise, use `SUB` to indicate the case is inverted from the casing state just for this one letter.
 
 Casing conversion only applies to ASCII letters.  Letters in Unicode range are ignored during this conversion, since they will be encoded numerically.  Casing conversion is necessary only for ASCII letters because ASCII letters are literal in the Bitsy encoding and therefore might lose their case in case-insensitive file name environments.  Casing control codes ensure that the original case of all the ASCII letters can always be recovered.
 
-## ASCII masking
+If the inserted casing control codes cause the length of the string to exceed the limit of 255 characters, Bitsy encoding fails.
 
-The third transformation that is done during Bitsy encoding is _ASCII masking._  This masking transformation drops any ASCII codes that are not "safe" from the file name and generates a sequence of encoded deltas that can be used to reconstruct the dropped codes.  This transformation does not affect Unicode codepoints (codepoints U+0080 and above).
+### Delta encoding
 
-The following table maps all of the "unsafe" ASCII characters to a unique integer index.  This table includes the special control codes that were generated during the previous point substitution and casing conversion steps:
+Once normalization, dot conversion, and casing conversion have been applied, the string is ready for delta encoding.  The delta encoding process is described in detail in `DeltaEncoding.md`.  The invariant character set includes only the characters listed under constraint 1 in `StrictName.md`.  All other characters &mdash; including any control codes that may have been added during dot conversion and casing conversion &mdash; are specials.  Specials are encoded with their numeric Unicode codepoint value.
 
-     Index | Codepoint |    Unsafe character
-    -------+-----------+-------------------------
-        0  |   U+0020  | SP (space)
-        1  |   U+001B  | ESC (invert ASCII case)
-        2  |   U+000F  | SI (switch to uppercase)
-        3  |   U+000E  | SO (switch to lowercase)
-        4  |   U+001A  | SUB (problem point)
-        5  |   U+003A  | Colon (:)
-        6  |   U+003F  | Question mark (?)
-        7  |   U+0022  | Double quote (")
-        8  |   U+002A  | Asterisk (*)
-        9  |   U+003C  | Less than (<)
-       10  |   U+003E  | Greater than (>)
-       11  |   U+007C  | Vertical bar (|)
+The result of delta encoding is an invariant string and an encoded delta string.  The invariant string may be empty if, for example, the input string contained only specials and no invariants.  The encoded delta string may be empty if, for example, the input string consisted of just a single hyphen.  If the encoded delta string ends up empty, replace it with the special string `aa` which will mark an empty delta string.  The delta string `aa` never occurs normally because that would decode to a special codepoint with numeric value U+0001 which is a control code that can't be present in the input and would never be added by dot or casing conversion.
 
-The unsafe characters in the table above are roughly sorted so that characters which probably occur more frequently within file names are earlier in the order.
+If the invariant string is empty, transform the input string to equal the encoded delta string (or `aa` if the encoded delta string was empty too).  If the invariant string is not empty, transform the input string to equal the invariant string and let the _delta suffix_ be a hyphen followed by the encoded delta string (or `-aa` if the encoded delta string was empty).  Then, if the invariant string contains any ASCII period characters, insert the delta suffix immediately before the first period character; else, append the delta suffix to the end of the invariant string.
 
-The encoding into deltas uses the same Bootstring algorithm that is behind Punycode.  However, for the ASCII masking stage, the `initial_n` parameter of Bootstring is zero, and encoded codepoint `n` values are for the index values in the unsafe characters table above, rather than corresponding to Unicode codepoints.  Also, the `damp` parameter for Bootstring is dropped from 700 to 2, effectively turning off dampening.  (Dampening optimizes the Punycode case for when there is an initial large delta skip to a Unicode block, and then remaining deltas stay within that block; the limited `n` values used during ASCII masking makes for a much less compelling case.)  The `base`, `tmin`, `tmax`, `skew`, and `initial_bias` parameters of Bootstring are left the same as they are for Punycode.
+Note that although the delta string appears before any file extension, the delta string transforms the whole invariant string &mdash; including the file extension (but not including the delta string).
 
-At the end of this transformation, all "unsafe" ASCII characters will have been dropped, and there will be an encoded ASCII masking string, which may be empty if there were no "unsafe" ASCII characters present.
+If the transformed invariant-with-delta file name exceeds the 255-character length limit, the Bitsy encoding process fails.
 
-## Punycode transformation
+### Prefixation
 
-After ASCII masking has dropped all unsafe ASCII characters, the whole file name string is run through the Bootstring algorithm again, except this time dropping all codepoint values of U+0080 or greater and generating an encoded delta string using the exact same Bootstring parameters as for Punycode.  The encoded delta string may be empty if there are no codepoint values of U+0080 or greater within the string.
+The final Bitsy general encoding step is to add a prefix `xz--` to the transformed file name to indicate that it is encoded with a delta string.  If this causes the encoded file name to exceed the 255-character length limit, the Bitsy encoding process fails.
 
-## Prefixation
-
-The last encoding stage is _prefixation._  There are the following cases:
-
-__Case 1:__  ASCII masking delta string is not empty and Punycode delta string is not empty.
-
-The string `xp--` is prefixed to the whole file name.  After the label but before the extension, there is a hyphen followed by the ASCII masking delta string, and then a hyphen followed by the Punycode delta string.
-
-__Case 2:__  ASCII masking delta string is not empty but Punycode delta string is empty.
-
-The string `xa--` is prefixed to the whole file name.  After the label but before the extension, a hyphen followed by the ASCII masking delta string is added.
-
-__Case 3:__  ASCII masking delta string is empty but Punycode delta string is not empty.
-
-The string `xn--` is prefixed to the whole file name.  After the label but before the extension, a hyphen followed by the Punycode delta string is added.
-
-__Case 4:__ ASCII masking delta string and Punycode delta string are both empty, but device name escaping flag is set.
-
-The string `xd--` is prefixed to the whole file name.
-
-__Case 5:__ ASCII masking delta string and Punycode delta string are both empty, and device name escaping flag is clear.
-
-Check whether the start of the file name is a case-insensitive match for `X#--` where `#` is any ASCII letter.  If there is such a match, take the 2nd letter (the `#` in the pattern above), prefix a hyphen to it, and add this after the label but before the extension.  Then, replace the first two characters of the file name with `xx` so that the file name begins with the prefix `xx--`
-
-If such a match does not exist, then the file name needs no prefix or suffix.
+After this prefix is added, the transformed string should always satisfy `StrictName.md`  The result is the encoded Bitsy string.
 
 ## Decoding
 
-The decoding process takes a file name that has been encoded with Bitsy and gets the original file name back (after normalization).
+The decoding process takes a file name that has been encoded with Bitsy and gets the (Unicode-normalized) original file name back.
 
-The decoding process begins by checking for one of the following four-character prefixes at the start of the file name (matching is case-insensitive):
+The decoding process begins by checking that the encoded file name conforms to `StrictName.md`.  If it does not, then the file name is not a Bitsy-encoded file name and the decoding process should fail.
 
-- `xa--` (ASCII masking)
-- `xd--` (Escaped device name)
-- `xn--` (Punycode)
-- `xp--` (ASCII masking and Punycode)
-- `xx--` (Escaped prefix)
+Second, the case of any letter present in the Bitsy-encoded file name can not be trusted, so convert any letters to lowercase before proceeding with the decoding process.
 
-If none of these prefixes is present, then the file name should only contain ASCII characters.  The original file name in this case has any ASCII letters converted to lowercase.
+Next, the decoding process checks for one of the following four-character prefixes at the start of the encoded file name:
 
-For the escaped device name prefix `xd--` you must drop this prefix and then convert any ASCII characters to lowercase.  There should only be ASCII characters in the rest of it.
+- `xq--` (escaping prefix)
+- `xz--` (encoding device name)
 
-For the escaped prefix prefix `xx--` first drop the prefix.  Then, split the file name into label and extension, as discussed earlier.  The last two characters of the label should be a hyphen followed by an ASCII letter.  Add a prefix `x#--` to the file name where `#` is replaced by the lowercase version of the ASCII letter at the end of the label, then drop the last two characters of the label, and finally convert all ASCII letters to lowercase to get the original file name back.
+If neither prefix is present, then pass-through encoding was used.  All letters were originally lowercase if pass-through encoding was used.  We've already converted all letters to lowercase, so we already have the original file name in this case without any further decoding needed.
 
-The other three escapes select either ASCII masking or Punycode or both.  Begin by dropping the prefix.  Then, split the file name into label and extension, as discussed earlier.  At the end of the label are encoded delta suffixes for reversing the ASCII masking and/or Punycode transformation, each delta suffix string being prefixed with a hyphen.  When ASCII masking and Punycode are used at the same time, the ASCII masking delta suffix precedes the Punycode suffix.  Store the delta suffix(es) and then drop the suffix(es) from the end of the label.  Rejoin the trimmed label and the extension.  Decode Punycode and/or ASCII masking; if both are specified, Punycode is decoded first.  Finally, if ASCII masking was decoded, convert `SUB` control codes back to period characters, and correct the case of all ASCII letters by using the casing state and `SI` `SO` and `ESC` controls as described earlier, dropping these control codes after casing has been corrected.  If no ASCII masking was decoded, convert the case of all ASCII letters to lowercase.
+If the `xq--` prefix is present, then we need to locate its suffix.  Make sure that the length of the encoded file name is at least six characters, or else it is invalid and decoding fails.  If there are no period characters in the file name, then the suffix is the last two characters of the file name.  Otherwise, the suffix is the two characters immediately before the first period character in the file name, and this first period must not be earlier than the seventh character in the name.  The suffix must either be `-q` `-z` or `-x` or otherwise the decoding process fails.  Remove the suffix from the file name.  If the suffix is `-x` then drop the first four characters of the file name; otherwise, replace the second character of the file name with the second character of the suffix.  The result of this process is the original file name.
+
+If the `xz--` prefix is present, you must do the whole general decoding process.  Begin by dropping the first four characters of the file name.  Then, look for the _label._  The label is the whole file name if there are no period characters, or otherwise the substring from the beginning of the transformed file name up to but excluding the first period character.  If the label contains no hyphens, then the delta string is the whole label; otherwise, the delta string is the last hyphen within the label and everything that follows it within the label.  Extract this delta string from the file name, and then drop the hyphen character from the beginning of the delta string if it is present.
+
+The file name after the `xz--` prefix and the delta string have been removed as described above is the invariant string.  The delta string (after removing any hyphen that may be present at the beginning of it) must not be empty or decoding fails.  If the delta string is the special marker `aa` then replace it now with an empty string.
+
+Use the invariant string and the delta string to decode the original transformed file name using the decoding process described in `DeltaEncoding.md`.
+
+Next, reverse the casing conversion process.  Start with the casing state at lowercase.  Step through the string.  Each time an SI control code is encountered, change the casing state to uppercase.  Each time an SO control code is encountered, change the casing state to lowercase.  Each time a SUB control code is encountered, check that it is immediately followed by an ASCII letter, set the case of that ASCII letter to the opposite of the current casing state.  Each time an ASCII letter is encountered that is _not_ preceded by a SUB control code, set its case to match the current casing state.  After the whole string has been case-corrected this way, go through the string again and drop all SI, SO, and SUB control codes.
+
+Next, reverse the dot conversion process.  Replace all RS control codes within the string with ASCII period characters.
+
+Finally, apply Unicode normalization to the name and make sure the result follows the five limitations on file names specified at the beginning of this document.  If it does, then the result is the decoded original file name (after Unicode normalization).
