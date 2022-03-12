@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+
+<html lang="en">
+  <head>
+    <!-- Core header fields -->
+    <meta charset="utf-8"/>
+    <title>Bitsy encoding app</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"/>
+    
+    <!-- If JavaScript disabled, do not show the splash screen -->
+    <noscript>
+      <style>
+
+#divSplash {
+  display: None;
+}
+
+      </style>
+    </noscript>
+    
+    <!-- Load the program modules -->
+    <script defer src="bitsy.js"></script>
+    <script defer src="bitsy_app.js"></script>
+  </head>
+  <body>
+
+    <!-- Screen displayed when JavaScript is disabled -->
+    <noscript>
+      <h1>Bitsy encoding app</h1>
+      <p>This web app requires JavaScript to function!</p>
+    </noscript>
+
+    <!-- Initial splash screen, except when JavaScript disabled -->
+    <div id="divSplash" style="font-style: italic;">
+      Loading web app...
+    </div>
+
+    <!-- The main program window, shown after page is loaded -->
+    <div id="divMain">
+      <h1>Bitsy encoding app</h1>
+      
+      <p>Input:<br/>
+        <textarea id="txtInput" rows="3" cols="20"></textarea>
+      </p>
+      
+      <p>
+        <input type="button" value="Encode to Bitsy"
+            onclick="bitsy_app.handleEncode()"/>
+        
+        <input type="button" value="Decode from Bitsy"
+            onclick="bitsy_app.handleDecode()"/>
+      </p>
+      
+      <hr/>
+      
+      <p>Output:<br/>
+        <textarea id="txtOutput" readonly rows="3" cols="20"></textarea>
+      </p>
+    </div>
+  </body>
+</html>
