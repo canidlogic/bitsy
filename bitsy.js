@@ -573,6 +573,132 @@
   }
 
   /*
+   * Given an original string value and an insertion map for the string,
+   * use the insertion map to derive the invariant string from the
+   * original string.
+   * 
+   * You should pass an insertion map that was generated for the given
+   * input string parameter using deriveInsertions().  The insertion map
+   * must be an array containing only non-zero integers.
+   * 
+   * The returned invariant string might be empty.
+   * 
+   * Parameters:
+   * 
+   *   str : string - the original string
+   * 
+   *   ism : Array of integers - an insertion map for the string
+   * 
+   * Return:
+   * 
+   *   the derived invariant string
+   */
+  function deriveInvariant(str, ism) {
+    
+    var func_name = "deriveInvariant";
+    var result;
+    var char_read, j;
+    
+    // Check parameters
+    if (typeof(str) !== "string") {
+      fault(func_name, 100);
+    }
+    if (!(ism instanceof Array)) {
+      fault(func_name, 110);
+    }
+    if (!(ism.every(function(x) {
+      if (typeof(x) !== "number") {
+        return false;
+      }
+      if (!isFinite(x)) {
+        return false;
+      }
+      if (Math.floor(x) !== x) {
+        return false;
+      }
+      if (x === 0) {
+        return false;
+      }
+      
+      return true;
+      
+    }))) {
+      fault(func_name, 120);
+    }
+    
+    // Start out the character read counter at zero and the result as an
+    // empty string
+    char_read = 0;
+    result = "";
+    
+    // Step through the insertion map element by element to build the
+    // result
+    ism.forEach(function(x, i, a) {
+      
+      // Check what kind of element we have
+      if (x < 0) {
+        // Run of invariants that we need to copy to result; begin by
+        // inverting the value so we have the count of invariants
+        x = -(x);
+        
+        // Make sure that this run of invariants does not extend beyond
+        // the end of the string
+        if (x > str.length - char_read) {
+          fault(func_name, 200);
+        }
+        
+        // Copy this run of invariants to the result string
+        if (x >= str.length) {
+          result = result + str;
+        } else {
+          result = result + str.slice(char_read, char_read + x);
+        }
+        
+        // Update the char_read counter
+        char_read = char_read + x;
+        
+      } else if (x > 0) {
+        // Special code in insertion map that won't be added to the
+        // invariant string, so we just need to skip over it; increase
+        // char_read by one or two, depending on whether it is a
+        // supplemental character (which is encoded by a surrogate pair
+        // in the original string)
+        if (x > 0xffff) {
+          char_read = char_read + 2;
+        } else {
+          char_read++;
+        }
+        
+        // Make sure char_read hasn't exceeded the length in characters
+        // of the string
+        if (char_read > str.length) {
+          fault(func_name, 280);
+        }
+        
+      } else {
+        // Shouldn't happen
+        fault(func_name, 290);
+      }
+      
+    });
+    
+    // Make sure the insertion map has covered the entire input string
+    if (char_read !== str.length) {
+      fault(func_name, 300);
+    }
+    
+    // Make sure that each character in the result is invariant
+    for(j = 0; j < result.length; j++) {
+      if (!isInvariantCode(result.charCodeAt(j))) {
+        fault(func_name, 310);
+      }
+    }
+    
+    // Return the derived invariant string
+    return result;
+  }
+
+  /*
    * Public functions
    * ================
    */
@@ -957,15 +1083,7 @@
     
     // @@TODO:
     var ar = deriveInsertions(str);
-    str = "[";
-    for(i = 0; i < ar.length; i++) {
-      if (i > 0) {
-        str = str + ", ";
-      }
-      str = str + ar[i];
-    }
-    str = str + "]";
-    return str;
+    return deriveInvariant(str, ar);
   }
 
   /*
