@@ -165,6 +165,53 @@
   }
 
   /*
+   * Check whether a given numeric codepoint value is an invariant
+   * character for purposes of Bitsy encoding.
+   * 
+   * Invariant characters are defined by constraint 1 in StrictName.md
+   * to include ASCII alphanumerics (both uppercase and lowercase), as
+   * well as hyphen, underscore, and period.
+   * 
+   * Pass the NUMERIC codepoint value to check, not the actual character
+   * as a string.
+   * 
+   * Parameters:
+   * 
+   *   cpv : integer - the numeric codepoint value to check
+   * 
+   * Return:
+   * 
+   *   true if codepoint is invariant, false otherwise
+   */
+  function isInvariantCode(cpv) {
+    
+    var func_name = "isInvariantCode";
+    
+    // Check parameter
+    if (typeof(cpv) !== "number") {
+      fault(func_name, 100);
+    }
+    if (!isFinite(cpv)) {
+      fault(func_name, 110);
+    }
+    if (Math.floor(cpv) !== cpv) {
+      fault(func_name, 120);
+    }
+    
+    // Check if invariant
+    if (((cpv >= ASC_ZERO) && (cpv <= ASC_NINE)) ||
+        ((cpv >= ASC_UPPER_A) && (cpv <= ASC_UPPER_Z)) ||
+        ((cpv >= ASC_LOWER_A) && (cpv <= ASC_LOWER_Z)) ||
+        (cpv === ASC_HYPHEN) ||
+        (cpv === ASC_UNDERSCORE) ||
+        (cpv === ASC_DOT)) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  /*
    * Check whether a string is at least "almost" a StrictName.
    * 
    * This returns true if the string satisfies all constraints except
@@ -208,12 +255,7 @@
       
       // Check that character code is ASCII alphanumeric or hyphen
       // underscore or period (constraints 1 & 2)
-      if (((c < ASC_ZERO) || (c > ASC_NINE)) &&
-          ((c < ASC_UPPER_A) || (c > ASC_UPPER_Z)) &&
-          ((c < ASC_LOWER_A) || (c > ASC_LOWER_Z)) &&
-          (c !== ASC_HYPHEN) &&
-          (c !== ASC_UNDERSCORE) &&
-          (c !== ASC_DOT)) {
+      if (!isInvariantCode(c)) {
         return false;
       }
       
@@ -339,6 +381,8 @@
    * This is NOT the same as the number of characters, because surrogate
    * pairs only count as a single codepoint but two characters.
    * 
+   * A fault occurs if there are any improperly paired surrogates.
+   * 
    * Parameters:
    * 
    *   str : string - the string to check
@@ -348,9 +392,54 @@
    *   the number of codepoints in the string
    */
   function getCPC(str) {
-    // @@TODO:
-    console.log("TODO: getCPC");
-    return str.length;
+    
+    var func_name = "getCPC";
+    var i, c, c2, result;
+    
+    // Check parameter
+    if (typeof(str) !== "string") {
+      fault(func_name, 100);
+    }
+    
+    // Count the characters in the string, except do not count low
+    // surrogates; also, check that all surrogates are properly paired
+    result = 0;
+    for(i = 0; i < str.length; i++) {
+      
+      // Get current character code
+      c = str.charCodeAt(i);
+      
+      // Handle depending on type
+      if ((c >= UC_HISUR_MIN) && (c <= UC_HISUR_MAX)) {
+        // High surrogate, so make sure not last character
+        if (i >= str.length - 1) {
+          fault(func_name, 200);
+        }
+        
+        // Check that next character is low surrogate
+        c2 = str.charCodeAt(i + 1);
+        if ((c < UC_LOSUR_MIN) || (c > UC_LOSUR_MAX)) {
+          fault(func_name, 210);
+        }
+        
+        // Increase result count for the whole surrogate pair, and also
+        // increment i to skip over the low surrogate
+        result++;
+        i++;
+        
+      } else if ((c >= UC_LOSUR_MIN) && (c <= UC_LOSUR_MAX)) {
+        // We only get here if we encounter an unpaired low surrogate,
+        // so fault
+        fault(func_name, 300);
+        
+      } else {
+        // Not a surrogate, so just increase the result count
+        result++;
+      }
+    }
+    
+    // Return result
+    return result;
   }
 
   /*
