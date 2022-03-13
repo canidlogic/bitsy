@@ -855,7 +855,7 @@
     var i, j, c, c2;
     var has_upper, has_prefix, already_strict, almost_strict;
     var dot_limit, upper_state, upper_c, upper_next;
-    var suf, px;
+    var suf, px, ar, c_p, c_n, d, ls;
     
     // Check parameter type
     if (typeof(str) !== "string") {
@@ -1208,15 +1208,53 @@
       throw new EncodeException("Input encoding too long", true);
     }
     
-    // @@TODO:
-    var ar = deriveInsertions(str);
+    // Split into invariant and oplist ---------------------------------
+    
+    // Derive an insertion map from the string
+    ar = deriveInsertions(str);
+    
+    // Replace the string with an invariant string derived from it and
+    // the insertion map
+    str = deriveInvariant(str, ar);
+    
+    // Convert the insertion map into an oplist
     ar = imapToOplist(ar);
+    
+    // Delta array encoding --------------------------------------------
+    
+    // Length state starts out with length of invariant string -- since
+    // no invariants are supplementals, we can just use normal length
+    // operation here
+    ls = str.length;
+    
+    // Set initial coordinate state
+    c_p = 0;
+    c_n = 1;
+    
+    // Now go through the oplist and replace each element with a delta
+    // encoding so that the oplist will be transformed into a delta
+    // array
+    ar.forEach(function(x, i, a) {
+      
+      // Compute the delta using the formula from DeltaEncoding.md
+      d = ((x[1] - c_n) * (ls + 1)) - c_p + x[0];
+      
+      // Update state
+      c_p = x[0];
+      c_n = x[1];
+      ls++;
+      
+      // Replace current array element with the delta
+      a[i] = d;
+    });
+    
+    // @@TODO:
     str = "[";
     ar.forEach(function(x, i, a) {
       if (i > 0) {
         str = str + ", ";
       }
-      str = str + "(" + x[0] + ", " + x[1] + ")";
+      str = str + x;
     });
     str = str + "]";
     return str;
