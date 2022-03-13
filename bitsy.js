@@ -25,6 +25,10 @@
   /*
    * ASCII numeric character codes.
    */
+  var ASC_CTL_SO     = 0x0e;
+  var ASC_CTL_SI     = 0x0f;
+  var ASC_CTL_SUB    = 0x1a;
+  var ASC_CTL_RS     = 0x1e;
   var ASC_CTL_MAX    = 0x1f;
   var ASC_HYPHEN     = 0x2d;
   var ASC_DOT        = 0x2e;
@@ -376,8 +380,9 @@
    */
   function encode(str) {
     
-    var i, c, c2;
+    var i, j, c, c2;
     var has_upper, has_prefix, already_strict, almost_strict;
+    var dot_limit, upper_state, upper_c, upper_next;
     var suf, px;
     
     // Check parameter type
@@ -399,9 +404,6 @@
     // that no ASCII control codes, no slashes, and all surrogates are
     // properly paired
     for(i = 0; i < str.length; i++) {
-      // Update codepoint count
-      cpc++;
-      
       // Get current character code
       c = str.charCodeAt(i);
       
@@ -537,6 +539,8 @@
     
     // GENERAL ENCODING PROCEDURE ======================================
     
+    // Unicode normalization -------------------------------------------
+    
     // We've already checked the input limitations and handled the
     // special encoding types; general encoding starts out by
     // normalizing to NFC
@@ -551,8 +555,193 @@
       throw new EncodeException("Input normalization too long", true);
     }
     
+    // Dot conversion --------------------------------------------------
+    
+    // Initialize the dot limit to -1 indicating limit beyond end of
+    // string
+    dot_limit = -1;
+    
+    // Scan through the dots in the file name in reverse order, from
+    // last to first
+    for(i = str.lastIndexOf(".");
+        i >= 0;
+        i = str.lastIndexOf(".", i)) {
+      
+      // We found a dot; get the substring that starts at that dot and
+      // runs to the end of the name
+      if (i > 0) {
+        c = str.slice(i);
+      } else {
+        c = str;
+      }
+      
+      // Check whether dot is proper by prefixing an "a" to it and
+      // checking whether the result is a StrictName
+      if (isStrictName("a" + c)) {
+        // Dot is proper, so update dot limit and continue
+        dot_limit = i;
+        
+      } else {
+        // Dot is not proper so do not update dot limit and stop
+        // scanning
+        break;
+      }
+      
+      // If we just handled the first character of the string, then
+      // leave the loop; otherwise, decrement i so that the search
+      // resumes in the next iteration
+      if (i < 1) {
+        break;
+      } else {
+        i--;
+      }
+    }
+    
+    // If dot_limit is zero, then change it to one; we always want to
+    // convert an initial dot to RS, even if it is technically proper;
+    // we handled special case "." earlier with pass-through encoding,
+    // so the increased dot_limit will always still refer to a character
+    // that exists within the string
+    if (dot_limit === 0) {
+      dot_limit = 1;
+    }
+    
+    // If dot_limit remains at -1 then there are no proper dots, so
+    // convert all dots to RS control codes; otherwise, convert only
+    // dots before the dot limit to RS control codes
+    if (dot_limit < 0) {
+      // No proper dots, so convert all dots to RS control codes
+      str = str.replace(/\./g, String.fromCharCode(ASC_CTL_RS));
+      
+    } else {
+      // Dot limit is in effect, and we know both that it is greater
+      // than zero at this point and also refers to a character that
+      // exists within the string; split string into two substrings, one
+      // before the dot limit and the other from the dot limit to the
+      // end of the string
+      c = str.slice(0, dot_limit);
+      c2 = str.slice(dot_limit);
+      
+      // Only convert dots in the substring prior to the dot limit to
+      // RS control codes
+      c = c.replace(/\./g, String.fromCharCode(ASC_CTL_RS));
+      
+      // Rejoin the strings
+      str = c + c2;
+    }
+    
+    // Casing conversion -----------------------------------------------
+    
+    // The casing state will start out lowercase
+    upper_state = false;
+    
+    // Go through the string character by character
+    for(i = 0; i < str.length; i++) {
+      // Get the character code at this location
+      c = str.charCodeAt(i);
+      
+      // Figure out the ASCII letter case of this character, or skip
+      // this character if it is not an ASCII letter
+      if ((c >= ASC_UPPER_A) && (c <= ASC_UPPER_Z)) {
+        // Uppercase
+        upper_c = true;
+        
+      } else if ((c >= ASC_LOWER_A) && (c <= ASC_LOWER_Z)) {
+        // Lowercase
+        upper_c = false;
+        
+      } else {
+        // Not an ASCII letter, so skip
+        continue;
+      }
+      
+      // If letter case of current ASCII letter matches the current case
+      // state, then we do not need to do anything so skip it
+      if (upper_c === upper_state) {
+        continue;
+      }
+      
+      // If we got here, we found an ASCII letter that does not match
+      // the current case state, so we will need to examine the case of
+      // the next ASCII letter (if there is one) to determine which
+      // casing control code to use; begin by setting the upper_next
+      // flag to the inverse of the current casing state, so that if
+      // there is no ASCII letter following this one, SUB will be the
+      // control code used
+      if (upper_c) {
+        upper_next = false;
+      } else {
+        upper_next = true;
+      }
+      
+      // Scan any remaining characters in the string until we reach the
+      // end of the string or find an ASCII letter; if we find an ASCII
+      // letter, store its case in upper_next
+      for(j = i + 1; j < str.length; j++) {
+        // Get the character
+        c2 = str.charCodeAt(j);
+        
+        // If we found a letter, set the upper_next flag to match its
+        // case and leave the loop
+        if ((c2 >= ASC_UPPER_A) && (c2 <= ASC_UPPER_Z)) {
+          // Uppercase
+          upper_next = true;
+          break;
+        
+        } else if ((c2 >= ASC_LOWER_A) && (c2 <= ASC_LOWER_Z)) {
+          // Lowercase
+          upper_next = false;
+          break;
+        }
+      }
+      
+      // upper_next is now set to the case of the next ASCII letter in
+      // the string (or the inverse of the current case if no more ASCII
+      // letters in string), so determine which control code needs to
+      // be inserted as c2 and change casing state if SI or SO
+      if (upper_next === upper_c) {
+        // The case of the next letter matches the case of the current
+        // letter, so use an SI if this case is uppercase or an SO if
+        // this case is lowercase, and update the casing state to match
+        // this case
+        if (upper_c) {
+          c2 = ASC_CTL_SI;
+        } else {
+          c2 = ASC_CTL_SO;
+        }
+        upper_state = upper_c;
+        
+      } else {
+        // The case of the current letter does not match the case of the
+        // next letter (or there is no next letter), so use a SUB
+        // control code and do not update the casing state
+        c2 = ASC_CTL_SUB;
+      }
+      
+      // Insert the control code before the current character
+      if (i > 0) {
+        c = str.slice(0, i);
+      } else {
+        c = "";
+      }
+      str = c + String.fromCharCode(c2) + str.slice(i);
+      
+      // Increment i to account for the inserted control code
+      i++;
+    }
+    
+    // Casing conversion may have extended the length, so do a length
+    // check again
+    if (getCPC(str) > LENGTH_LIMIT) {
+      throw new EncodeException("Input encoding too long", true);
+    }
+    
     // @@TODO:
-    return "?TODO?";
+    str = str.replace(/\u001e/g, "@");
+    str = str.replace(/\u001a/g, "*");
+    str = str.replace(/\u000f/g, "(");
+    str = str.replace(/\u000e/g, ")");
+    return str;
   }
 
   /*
