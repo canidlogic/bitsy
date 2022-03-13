@@ -699,6 +699,133 @@
   }
 
   /*
+   * Given an insertion map, generate an equivalent oplist.
+   * 
+   * CAUTION:  this function will leave the given insertion map array in
+   * an undefined state!
+   * 
+   * The oplist is defined in DeltaEncoding.md.  Briefly, it has a pair
+   * of coordinates for each element in the array.  The first coordinate
+   * gives the index in the string where to insert a special character
+   * and the second coordinate gives the codepoint value of the special
+   * character to insert.  The first coordinate may be equal to the
+   * length of the string to append at the end.  Taking the invariant
+   * string and running all insertions in the order given in the oplist
+   * would reconstruct the original string.
+   * 
+   * The oplist is furthermore sorted first by ascending SECOND
+   * coordinate values and secondarily by ascending first coordinate
+   * values.  This means the oplist is sorted primarily by the codepoint
+   * of the inserted special character, rather than by the insertion
+   * position in the string.
+   * 
+   * Parameters:
+   * 
+   *   ism : Array of integers - the insertion map to transform, which
+   *   will be left in an undefined state
+   * 
+   * Return:
+   * 
+   *   the generated oplist
+   */
+  function imapToOplist(ism) {
+    
+    var func_name = "imapToOplist";
+    var opl, fMin, min_val, ccount;
+    
+    // Check parameter
+    if (!(ism instanceof Array)) {
+      fault(func_name, 100);
+    }
+    if (!(ism.every(function(x) {
+      if (typeof(x) !== "number") {
+        return false;
+      }
+      if (!isFinite(x)) {
+        return false;
+      }
+      if (Math.floor(x) !== x) {
+        return false;
+      }
+      if (x === 0) {
+        return false;
+      }
+      
+      return true;
+      
+    }))) {
+      fault(func_name, 110);
+    }
+    
+    // Oplist starts out empty
+    opl = [];
+    
+    // Define a function for Array.forEach() that will update min_val to
+    // the lowest value in the array that is greater than zero; a
+    // min_val of -1 has special meaning that no min_val is set yet
+    fMin = function(x, i, a) {
+      if (x > 0) {
+        if (min_val < 0) {
+          min_val = x;
+          
+        } else if (x < min_val) {
+          min_val = x;
+        }
+      }
+    };
+    
+    // Look for the lowest value in the insertion map that is greater
+    // than zero
+    min_val = -1;
+    ism.forEach(fMin);
+    
+    // Keep processing while there is at least one value that is greater
+    // than zero
+    while (min_val > 0) {
+      // Go through ism map in sequential order, looking for elements
+      // that match min_val and updating ccount; each negative value
+      // causes ccount to increase by the absolute value of the negative
+      // value, each zero value causes ccount to increment, and values
+      // greater than zero have no effect on ccount; for elements that
+      // match min_val, add an insertion op at position matching current
+      // value of ccount and special character code matching min_val and
+      // then clear the insertion map value to zero and increment ccount
+      ccount = 0;
+      ism.forEach(function(x, i, a) {
+        // Handle different element values
+        if (x < 0) {
+          // Negative values increase ccount by their absolute value
+          ccount = ccount - x;
+          
+        } else if (x === 0) {
+          // Zero values (representing a special character that has
+          // already been inserted) increment ccount
+          ccount++;
+          
+        } else if (x === min_val) {
+          // We found a match for min_val, so add an insertion op
+          opl.push([ccount, min_val]);
+          
+          // Clear the insertion map value to zero
+          a[i] = 0;
+          
+          // Increment ccount to take into account the character we just
+          // inserted
+          ccount++;
+        }
+      });
+      
+      // Reset min_val and search again for the lowest value that is
+      // greater than zero
+      min_val = -1;
+      ism.forEach(fMin);
+    }
+    
+    // Return the generated oplist
+    return opl;
+  }
+
+  /*
    * Public functions
    * ================
    */
@@ -1083,7 +1210,16 @@
     
     // @@TODO:
     var ar = deriveInsertions(str);
-    return deriveInvariant(str, ar);
+    ar = imapToOplist(ar);
+    str = "[";
+    ar.forEach(function(x, i, a) {
+      if (i > 0) {
+        str = str + ", ";
+      }
+      str = str + "(" + x[0] + ", " + x[1] + ")";
+    });
+    str = str + "]";
+    return str;
   }
 
   /*
