@@ -443,6 +443,136 @@
   }
 
   /*
+   * Given a Unicode string, derive an insertion map for it.
+   * 
+   * The insertion map is specified in DeltaEncoding.md.  Briefly, it is
+   * an array of integers, where negative integers encode a sequence of
+   * invariant characters, the length of which is the absolute value of
+   * the negative integer, and integers greater than zero encode a
+   * single special codepoint.
+   * 
+   * The given string must not include any characters with codepoint
+   * zero, and must not include any improperly paired surrogates, or
+   * else a fault occurs.  Provided that these constraints are
+   * satisfied, this function accepts any string for transformation into
+   * an insertion map.
+   * 
+   * The isInvariantCode() function determines which codepoints are
+   * considered invariant.  Supplemental codepoints may never be
+   * invariant.
+   * 
+   * Parameters:
+   * 
+   *   str : string - the string to derive an insertion map for
+   * 
+   * Return:
+   * 
+   *   an array containing the derived insertion map
+   */
+  function deriveInsertions(str) {
+    
+    var func_name = "deriveInsertions";
+    var result, icount;
+    var i, c, c2;
+    
+    // Check parameter
+    if (typeof(str) !== "string") {
+      fault(func_name, 100);
+    }
+    
+    // Result begins as an empty array
+    result = [];
+    
+    // Invariant counter starts at zero
+    icount = 0;
+    
+    // Go through the string character by character
+    for(i = 0; i < str.length; i++) {
+    
+      // Get current character
+      c = str.charCodeAt(i);
+      
+      // Current character may not be nul
+      if (c < 1) {
+        fault(func_name, 190);
+      }
+      
+      // Current character must not be low surrogate or it would be
+      // improperly paired
+      if ((c >= UC_LOSUR_MIN) && (c <= UC_LOSUR_MAX)) {
+        fault(func_name, 200);
+      }
+      
+      // If current character is high surrogate, then make sure it is
+      // not the last character, make sure it is followed by a low
+      // surrogate, and then replace character by the decoded
+      // supplemental value, make sure the supplemental value is not
+      // invariant, and increment i so that the low surrogate is skipped
+      // over next loop iteration
+      if ((c >= UC_HISUR_MIN) && (c <= UC_HISUR_MAX)) {
+        // Make sure not last character
+        if (i >= str.length - 1) {
+          fault(func_name, 300);
+        }
+        
+        // Get next character
+        c2 = str.charCodeAt(i + 1);
+        
+        // Make sure next character is low surrogate
+        if ((c2 < UC_LOSUR_MIN) || (c2 > UC_LOSUR_MAX)) {
+          fault(func_name, 310);
+        }
+        
+        // Convert both surrogates to their offset from the base
+        // surrogate codes
+        c = c - UC_HISUR_MIN;
+        c2 = c2 - UC_LOSUR_MIN;
+        
+        // Combine both surrogates into a single supplemental offset
+        c = (c << 10) + c2;
+        
+        // Get the decoded supplemental codepoint value
+        c = c + 0x10000;
+        
+        // Make sure supplemental codepoint is not invariant
+        if (isInvariantCode(c)) {
+          fault(func_name, 320);
+        }
+        
+        // Increment i to skip over the low surrogate
+        i++;
+      }
+    
+      // Check whether current codepoint is invariant and handle
+      // appropriately
+      if (isInvariantCode(c)) {
+        // Invariant code, so just increment the invariant counter
+        icount++;
+        
+      } else {
+        // Not an invariant character, so first if we have invariant
+        // characters buffered, flush the buffer
+        if (icount > 0) {
+          result.push(0 - icount);
+          icount = 0;
+        }
+        
+        // Now add the special character codepoint into the array
+        result.push(c);
+      }
+    }
+    
+    // If we have invariant characters buffered, flush the buffer
+    if (icount > 0) {
+      result.push(0 - icount);
+      icount = 0;
+    }
+    
+    // Return result
+    return result;
+  }
+
+  /*
    * Public functions
    * ================
    */
@@ -826,10 +956,15 @@
     }
     
     // @@TODO:
-    str = str.replace(/\u001e/g, "@");
-    str = str.replace(/\u001a/g, "*");
-    str = str.replace(/\u000f/g, "(");
-    str = str.replace(/\u000e/g, ")");
+    var ar = deriveInsertions(str);
+    str = "[";
+    for(i = 0; i < ar.length; i++) {
+      if (i > 0) {
+        str = str + ", ";
+      }
+      str = str + ar[i];
+    }
+    str = str + "]";
     return str;
   }
 
