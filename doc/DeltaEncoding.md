@@ -571,18 +571,6 @@ Therefore, we can convert the example oplist from the last section into deltas a
     Delta sequence:
     3, 46, 31, 57, 37, 35, 35, 21, 39, 4, 44
 
-The delta sequence can then be encoded into a sequence of case-insensitive ASCII alphanumeric characters by using the method described in `FlexDelta.md`.  Using that procedure on the example delta sequence generated above results in the following:
-    
-    Original string:
-    the1quick3brown2fox7jumps6over5
-    a4lazy8dog987
-    
-    Invariant string:
-    thequickbrownfoxjumpsoveralazydog
-    
-    Specials encoded as deltas:
-    adbka5bvbba9a9avb3aebi
-
 Deriving an oplist from a delta sequence uses a similar procedure, with the same initial state:
 
     Current coordinate state is (c_p, c_n)
@@ -784,12 +772,38 @@ The following shows how the example delta sequence we computed can be transforme
 
 We can therefore transform any oplist into a delta sequence, and any delta sequence back into an oplist.
 
+## Delta prediction
+
+After we have our sequence of delta values, the last encoding step is to transform them into a sequence of base-36 characters according to `FlexDelta.md`.  To reduce the length of this sequence, predictions are required by FlexDelta for each delta value.
+
+The first prediction is always:
+
+    ((0x0E - 1) * (sl + 1)) - 1
+    where sl = length of invariant string
+
+We need to reserve the value `AA` as a marker for a missing delta sequence, as described in `BitsySpec.md`.  This first prediction is therefore one below the lowest possible first delta value, since U+000E is the lowest possible codepoint that can be in the Bitsy string.
+
+If a delta value is encoded as an unsigned value rather than as a signed displacement, we interpret this to mean that there was a shift in Unicode block and that we should reset the prediction state.  The first prediction after such a reset is always equal to:
+
+    (sl + dc + 1)
+    where:
+      sl = length of invariant string
+      dc = number of deltas that have been processed
+
+For computing other predictions, we have a buffer that stores the four most recent delta values.  The prediction is the average of these four deltas:
+
+    predict = floor((d_1 + d_2 + d_3 + d_4) / 4)
+
+Initially, all four buffer entries are set to the first prediction value, and after a prediction reset, all four buffer entries are set to the reset prediction value.  This means that the prediction function shown above can be used for every delta.
+
+When we decode deltas, we need to use the exact same sequence of delta predictions and reset the predictions at the exact same times in order to properly decode the sequence.
+
 ## Summary
 
 _In order to transform an original string into an invariant string and delta sequence:_
 
-Transform the original string into an invariant string and an insertion map.  Transform the insertion map into an oplist.  Transform the oplist into a delta sequence.  Encode the delta sequence using `FlexDelta.md`.
+Transform the original string into an invariant string and an insertion map.  Transform the insertion map into an oplist.  Transform the oplist into a delta sequence.  Iniitalize the prediction buffers.  Go through the delta sequence element by element, computing a predicted delta for each element and then encoding the actual delta with this prediction using `FlexDelta.md`.  Whenever the encoded string returned from `FlexDelta.md` has five or more characters, reset the prediction buffers.
 
 _In order to transform an invariant string and delta sequence back into an original string:_
 
-Decode the delta sequence using `FlexDelta.md`.  Transform the delta sequence into an oplist.  Transform the oplist into an insertion map.  Apply the insertion map to the invariant string to build back the original string.
+Split the delta sequence into an array of encoded delta values as described in `FlexDelta.md`.  Initialize the prediction buffers.  For each encoded delta, compute a predicted delta and then decode the actual delta with this prediction using `FlexDelta.md`.  Whenever we finish decoding an encoded delta value of five or more characters, reset the prediction buffers.  Transform the delta sequence into an oplist.  Transform the oplist into an insertion map.  Apply the insertion map to the invariant string to build back the original string.
