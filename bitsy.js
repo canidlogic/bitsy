@@ -418,7 +418,7 @@
         
         // Check that next character is low surrogate
         c2 = str.charCodeAt(i + 1);
-        if ((c < UC_LOSUR_MIN) || (c > UC_LOSUR_MAX)) {
+        if ((c2 < UC_LOSUR_MIN) || (c2 > UC_LOSUR_MAX)) {
           fault(func_name, 210);
         }
         
@@ -826,6 +826,156 @@
   }
 
   /*
+   * Encode an integer value into a FlexDelta string using a prediction.
+   * 
+   * The FlexDelta encoding is defined in FlexDelta.md.  The given
+   * value parameter may be any integer in range [0, 362797055].
+   * 
+   * You must also provide a predicted delta value.  This may also be
+   * any integer in range [0, 362797055].  The same sequence of
+   * predictions will need to be provided during decoding.
+   * 
+   * If the returned string has five or more characters, it directly
+   * encodes the delta value.  Otherwise, it encodes a signed
+   * displacement from the prediction value.
+   * 
+   * Parameters:
+   * 
+   *   v : integer - the value to encode
+   * 
+   *   p : integer - the predicted delta value
+   * 
+   * Return:
+   * 
+   *   string containing the FlexDelta encoding of the integer
+   */
+  function encodeFlex(v, p) {
+    
+    var func_name = "encodeFlex";
+    var elen, result, i, d;
+    
+    // Check parameters
+    if (typeof(v) !== "number") {
+      fault(func_name, 100);
+    }
+    if (!isFinite(v)) {
+      fault(func_name, 110);
+    }
+    if (Math.floor(v) !== v) {
+      fault(func_name, 120);
+    }
+    if ((v < 0) || (v > 362797055)) {
+      fault(func_name, 130);
+    }
+    
+    if (typeof(p) !== "number") {
+      fault(func_name, 140);
+    }
+    if (!isFinite(p)) {
+      fault(func_name, 150);
+    }
+    if (Math.floor(p) !== p) {
+      fault(func_name, 160);
+    }
+    if ((p < 0) || (p > 362797055)) {
+      fault(func_name, 170);
+    }
+    
+    // Compute signed displacement
+    d = v - p;
+    
+    // Determine the unsigned value we will be encoding and how many
+    // characters we will be encoding
+    if ((d >= -138968) && (d <= 139967)) {
+      // Signed displacement in range, so convert it to an encoded
+      // unsigned value
+      if (d < 0) {
+        v = (d * -2) - 1;
+      } else {
+        v = d * 2;
+      }
+      
+      // Determine whether to use two, three, or four characters for the
+      // encoded unsigned value
+      if (v < 432) {
+        elen = 2;
+      } else if (v < 7776) {
+        elen = 3;
+      } else {
+        elen = 4;
+      }
+      
+    } else {
+      // Signed displacement is too large, so encode directly using
+      // either five or six characters
+      if (v < 10077696) {
+        elen = 5;
+      } else {
+        elen = 6;
+      }
+    }
+    
+    // Start the result as an empty string
+    result = "";
+    
+    // Compute all the digits that follow the first digit in reverse
+    // order
+    for(i = 1; i < elen; i++) {
+
+      // Get current digit value and update value
+      d = v % 36;
+      v = Math.floor(v / 36);
+
+      // Determine digit codepoint
+      if (d < 26) {
+        d = d + ASC_LOWER_A;
+        
+      } else {
+        d = d - 26 + ASC_ZERO;
+      }
+
+      // Prefix this digit to the result
+      result = String.fromCharCode(d) + result;
+    }
+    
+    // Now map the remaining value to a leading byte numeric value based
+    // on the table with column "First" in FlexDelta.md
+    if (elen === 2) {
+      v = v + 0;
+      
+    } else if (elen === 3) {
+      v = v + 12;
+      
+    } else if (elen === 4) {
+      v = v + 18;
+      
+    } else if (elen === 5) {
+      v = v + 24;
+      
+    } else if (elen === 6) {
+      v = v + 30;
+      
+    } else {
+      // Shouldn't happen
+      fault(func_name, 200);
+    }
+    
+    // Convert leading byte numeric value to letter codepoint
+    if (v < 26) {
+      v = v + ASC_LOWER_A;
+      
+    } else {
+      v = v -26 + ASC_ZERO;
+    }
+    
+    // Prefix lead byte digit to the result
+    result = String.fromCharCode(v) + result;
+    
+    // Return result
+    return result;
+  }
+
+  /*
    * Public functions
    * ================
    */
@@ -855,7 +1005,7 @@
     var i, j, c, c2;
     var has_upper, has_prefix, already_strict, almost_strict;
     var dot_limit, upper_state, upper_c, upper_next;
-    var suf, px, ar, c_p, c_n, d, ls;
+    var suf, px, ar, c_p, c_n, d, ls, ds, p, ev;
     
     // Check parameter type
     if (typeof(str) !== "string") {
@@ -1248,16 +1398,32 @@
       a[i] = d;
     });
     
-    // @@TODO:
-    str = "[";
+    // Initialize delta prediction buffer
+    p = ((0x0e - 1) * (str.length + 1)) - 1;
+    
+    // Start the delta suffix out empty and then add each encoded value,
+    // updating and using predictions along the way
+    ds = "";
+console.log("begin");
     ar.forEach(function(x, i, a) {
-      if (i > 0) {
-        str = str + ", ";
-      }
-      str = str + x;
+console.log("predict=" + p + "; delta=" + x);      
+      // Encode using prediction
+      ev = encodeFlex(x, p);
+      
+      // Add new encoding to delta suffix
+      ds = ds + ev;
+      
+      // Update prediction state
+      p = x;
     });
-    str = str + "]";
-    return str;
+    
+    // If delta suffix is empty, replace it with special marker aa
+    if (ds.length < 1) {
+      ds = "aa";
+    }
+    
+    // @@TODO:
+    return ds;
   }
 
   /*
