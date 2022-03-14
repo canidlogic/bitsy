@@ -18,7 +18,7 @@ Therefore, FlexDelta must be able to encode unsigned integers in range [0, 28409
 
 When possible, FlexDelta stores a signed displacement from a predicted delta value instead of storing the delta value directly.  Sometimes the displacement from the predicted delta value is too large to store in FlexDelta, in which case FlexDelta directly stores the delta value as an unsigned integer instead.  This is intended to efficiently encode the common case where most special characters that are being encoded are clustered in a limited number of Unicode blocks &mdash; the signed displacements from prediction values are intended for use for encoding deltas within the same Unicode block, while unsigned values stored directly can be used to encode large skips between different Unicode blocks.
 
-The FlexDelta encoding and decoding procedures must always be given a predicted delta.  When the encoding procedure returns, the length of the encoding determines whether a signed displacement or unsigned value was stored &mdash; encodings of 5 or more characters are unsigned deltas and encodings of less than 5 characters are signed displacements.  When the decoding procedure returns, it returns the decoded delta value directly if it decoded an unsigned value, and otherwise it returns a negative integer (-_d_ - 1) where _d_ is the decoded delta value to indicate the delta was decoded from a signed displacement.  Knowing whether an unsigned direct delta (a large skip, probably between Unicode blocks) or a signed displacement (a small skip, probably within a Unicode block) was used can affect subsequent predictions.  FlexDelta is not concerned with the specific prediction algorithm used, however.
+The FlexDelta encoding and decoding procedures must always be given a predicted delta.  When the encoding procedure returns, the length of the encoding determines whether a signed displacement or unsigned value was stored &mdash; encodings of 5 or more characters are unsigned deltas and encodings of less than 5 characters are signed displacements.  For decoding, you can use the length of the encoded value in the same way to determine whether or not it is a signed displacement.  Knowing whether an unsigned direct delta (a large skip, probably between Unicode blocks) or a signed displacement (a small skip, probably within a Unicode block) was used can affect subsequent predictions.  FlexDelta is not concerned with the specific prediction algorithm used, however.
 
 ## Signed displacement encoding
 
@@ -284,6 +284,8 @@ We can decode the "8ZFH4X" that we encoded in encoding example 1 with prediction
     
     result = 284,098,559 (= d_max)
 
+Since the encoded value was five or more characters long, we know it was encoded directly and not with signed displacement.
+
 ### Decoding example 2
 
 We can also decode the "M2P" with prediction 1,024 that we encoded in encoding example 2 to make sure we get the same value back:
@@ -313,12 +315,10 @@ We can also decode the "M2P" with prediction 1,024 that we encoded in encoding e
     result -> (result + 1) DIV -2 = -512
     
     Signed displacement = -512
-    Add to prediction to get: 512 as reconstructed delta
-    
-    Subtract from zero and decrement to get final result:
-    -513
+    Add to prediction to get:
+      512 as reconstructed delta
 
-Since a negative value is returned from this decoding operation, we know it was derived by signed displacement, and the original delta is -(-513 + 1) = 512.
+Since the encoded value was less than five characters long, we know it was derived by signed displacement.
 
 ## Encoding sequences of deltas
 
