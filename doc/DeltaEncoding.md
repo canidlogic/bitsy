@@ -783,20 +783,9 @@ The first prediction is always:
 
 We need to reserve the value `AA` as a marker for a missing delta sequence, as described in `BitsySpec.md`.  This first prediction is therefore one below the lowest possible first delta value, since U+000E is the lowest possible codepoint that can be in the Bitsy string.
 
-If a delta value is encoded as an unsigned value rather than as a signed displacement, we interpret this to mean that there was a shift in Unicode block and that we should reset the prediction state.  The first prediction after such a reset is always equal to:
+For all other predictions, the prediction is just the previous delta value.
 
-    (sl + dc + 1)
-    where:
-      sl = length of invariant string
-      dc = number of deltas that have been processed
-
-For computing other predictions, we have a buffer that stores the four most recent delta values.  The prediction is the average of these four deltas:
-
-    predict = floor((d_1 + d_2 + d_3 + d_4) / 4)
-
-Initially, all four buffer entries are set to the first prediction value, and after a prediction reset, all four buffer entries are set to the reset prediction value.  This means that the prediction function shown above can be used for every delta.
-
-When we decode deltas, we need to use the exact same sequence of delta predictions and reset the predictions at the exact same times in order to properly decode the sequence.
+When we decode deltas, we need to use the exact same sequence of delta predictions in order to properly decode the sequence.
 
 ## Summary
 
