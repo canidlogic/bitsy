@@ -108,6 +108,47 @@
   }
   
   /*
+   * Set the display showing the ratio of encoded characters to original
+   * characters.
+   * 
+   * r is the ratio to set.  It must be a finite numeric value greater
+   * than zero, or a negative value to indicate no ratio to report.
+   * 
+   * Parameters:
+   * 
+   *   r : number - the ratio to display
+   */
+  function setRatio(r) {
+    
+    var func_name = "setRatio";
+    var e;
+    
+    // Check parameter
+    if (typeof(r) !== "number") {
+      fault(func_name, 100);
+    }
+    if (!isFinite(r)) {
+      fault(func_name, 110);
+    }
+    
+    // Get output element
+    e = document.getElementById("spnMeasure");
+    if (e == null) {
+      fault(func_name, 120);
+    }
+    
+    // Update display
+    if (r < 0.0) {
+      // No ratio to display
+      e.innerHTML = "&mdash;";
+      
+    } else {
+      // Display ratio
+      e.innerHTML = r.toFixed(3);
+    }
+  }
+  
+  /*
    * Public functions
    * ================
    */
@@ -118,7 +159,10 @@
   function handleEncode() {
     
     var func_name = "handleEncode";
-    var eInput, eOutput;
+    var eInput, eOutput, r;
+    
+    // Reset ratio display
+    setRatio(-1);
     
     // Get the input and output boxes
     eInput = document.getElementById("txtInput");
@@ -142,6 +186,15 @@
         eOutput.value = "UNEXPECTED EXCEPTION: " + ex;
       }
     }
+    
+    // If output value is at least four characters and begins with xz--
+    // then calculate the ratio and display it
+    if ((eOutput.value.length >= 4) && (eInput.value.length > 0)) {
+      if (eOutput.value.slice(0, 4) === "xz--") {
+        r = (eOutput.value.length - 4) / eInput.value.length;
+        setRatio(r);
+      }
+    }
   }
   
   /*
@@ -150,7 +203,10 @@
   function handleDecode() {
     
     var func_name = "handleDecode";
-    var eInput, eOutput;
+    var eInput, eOutput, r;
+    
+    // Reset ratio display
+    setRatio(-1);
     
     // Get the input and output boxes
     eInput = document.getElementById("txtInput");
@@ -174,12 +230,24 @@
         eOutput.value = "UNEXPECTED EXCEPTION: " + ex;
       }
     }
+    
+    // If input value is at least four characters and begins with xz--
+    // then calculate the ratio and display it
+    if ((eInput.value.length >= 4) && (eOutput.value.length > 0)) {
+      if (eInput.value.slice(0, 4) === "xz--") {
+        r = (eInput.value.length - 4) / eOutput.value.length;
+        setRatio(r);
+      }
+    }
   }
   
   /*
    * Function called after the page is loaded.
    */
   function handleLoad() {
+    
+    /* Clear ratio display */
+    setRatio(-1);
     
     /* Hide the splash screen and show the main window */
     dismiss("divSplash");
