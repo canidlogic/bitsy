@@ -418,7 +418,7 @@
         
         // Check that next character is low surrogate
         c2 = str.charCodeAt(i + 1);
-        if ((c < UC_LOSUR_MIN) || (c > UC_LOSUR_MAX)) {
+        if ((c2 < UC_LOSUR_MIN) || (c2 > UC_LOSUR_MAX)) {
           fault(func_name, 210);
         }
         
@@ -826,6 +826,112 @@
   }
 
   /*
+   * Encode an integer value into a FlexDelta string.
+   * 
+   * The FlexDelta encoding is defined in FlexDelta.md.  The given
+   * parameter may be any integer in range [0, 362797055].
+   * 
+   * Parameters:
+   * 
+   *   v : integer - the value to encode
+   * 
+   * Return:
+   * 
+   *   string containing the FlexDelta encoding of the integer
+   */
+  function encodeFlex(v) {
+    
+    var func_name = "encodeFlex";
+    var elen, result, i, d;
+    
+    // Check parameter
+    if (typeof(v) !== "number") {
+      fault(func_name, 100);
+    }
+    if (!isFinite(v)) {
+      fault(func_name, 110);
+    }
+    if (Math.floor(v) !== v) {
+      fault(func_name, 120);
+    }
+    if ((v < 0) || (v > 362797055)) {
+      fault(func_name, 130);
+    }
+    
+    // Determine the encoding length
+    if (v < 432) {
+      elen = 2;
+    } else if (v < 7776) {
+      elen = 3;
+    } else if (v < 279936) {
+      elen = 4;
+    } else if (v < 10077696) {
+      elen = 5;
+    } else {
+      elen = 6;
+    }
+
+    // Start the result as an empty string
+    result = "";
+    
+    // Compute all the digits that follow the first digit in reverse
+    // order
+    for(i = 1; i < elen; i++) {
+
+      // Get current digit value and update value
+      d = v % 36;
+      v = Math.floor(v / 36);
+
+      // Determine digit codepoint
+      if (d < 26) {
+        d = d + ASC_LOWER_A;
+        
+      } else {
+        d = d - 26 + ASC_ZERO;
+      }
+
+      // Prefix this digit to the result
+      result = String.fromCharCode(d) + result;
+    }
+    
+    // Now map the remaining value to a leading byte numeric value based
+    // on the table with column "First" in FlexDelta.md
+    if (elen === 2) {
+      v = v + 0;
+      
+    } else if (elen === 3) {
+      v = v + 12;
+      
+    } else if (elen === 4) {
+      v = v + 18;
+      
+    } else if (elen === 5) {
+      v = v + 24;
+      
+    } else if (elen === 6) {
+      v = v + 30;
+      
+    } else {
+      // Shouldn't happen
+      fault(func_name, 200);
+    }
+    
+    // Convert leading byte numeric value to letter codepoint
+    if (v < 26) {
+      v = v + ASC_LOWER_A;
+      
+    } else {
+      v = v -26 + ASC_ZERO;
+    }
+    
+    // Prefix lead byte digit to the result
+    result = String.fromCharCode(v) + result;
+    
+    // Return result
+    return result;
+  }
+
+  /*
    * Public functions
    * ================
    */
@@ -855,7 +961,7 @@
     var i, j, c, c2;
     var has_upper, has_prefix, already_strict, almost_strict;
     var dot_limit, upper_state, upper_c, upper_next;
-    var suf, px, ar, c_p, c_n, d, ls;
+    var suf, px, ar, c_p, c_n, d, ls, ds;
     
     // Check parameter type
     if (typeof(str) !== "string") {
@@ -1248,15 +1354,53 @@
       a[i] = d;
     });
     
-    // @@TODO:
-    str = "[";
+    // Start the delta suffix out empty and then add each encoded value
+    ds = "";
     ar.forEach(function(x, i, a) {
-      if (i > 0) {
-        str = str + ", ";
-      }
-      str = str + x;
+      ds = ds + encodeFlex(x);
     });
-    str = str + "]";
+    
+    // If delta suffix is empty, replace it with special marker aa
+    if (ds.length < 1) {
+      ds = "aa";
+    }
+    
+    // Final assembly --------------------------------------------------
+    
+    // Insert the delta suffix into the appropriate position in the
+    // invariant string
+    if (str.length < 1) {
+      // Invariant string is empty, so replace it with delta suffix
+      str = ds;
+      
+    } else {
+      // Invariant string is not empty, find first period if there is
+      // one
+      i = str.indexOf(".");
+      if (i < 0) {
+        // No period, so just suffix the delta suffix
+        str = str + "-" + ds;
+        
+      } else {
+        // Period, so insert the delta suffix before the period
+        str = str.slice(0, i) + "-" + ds + str.slice(i);
+      }
+    }
+    
+    // Finally, add the prefix
+    str = PREFIX_ENCODE + str;
+    
+    // Final length check
+    if (str.length > LENGTH_LIMIT) {
+      throw new EncodeException("Input encoding too long", true);
+    }
+    
+    // We should have a StrictName
+    if (!isStrictName(str)) {
+      throw new EncodeException("Encoding is not strict", false);
+    }
+    
+    // Return the encoded result
     return str;
   }
 
