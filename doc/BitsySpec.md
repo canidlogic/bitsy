@@ -137,7 +137,7 @@ Second, the case of any letter present in the Bitsy-encoded file name can not be
 Next, the decoding process checks for one of the following four-character prefixes at the start of the encoded file name:
 
 - `xq--` (escaping prefix)
-- `xz--` (encoding device name)
+- `xz--` (encoding prefix)
 
 If neither prefix is present, then pass-through encoding was used.  All letters were originally lowercase if pass-through encoding was used.  We've already converted all letters to lowercase, so we already have the original file name in this case without any further decoding needed.
 
