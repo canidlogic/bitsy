@@ -708,6 +708,163 @@
   }
 
   /*
+   * Given an invariant string and an insertion map, reconstruct the
+   * encoded string and return it.
+   * 
+   * The invariant string may be any string value, provided that it
+   * contains no surrogates and that its length equals the absolute
+   * value of the sum of all negative values in ism.  The invariant
+   * string may be empty.
+   * 
+   * The insertion map is described in detail in DeltaEncoding.md.
+   * Briefly, negative values encode a sequence of characters copied
+   * from the invariant string, with the absolute value of the negative
+   * integer determining the number of invariant characters to copy.
+   * Zero values are not allowed in the insertion map.  Values greater
+   * than zero indicate the codepoint of a special character to insert.
+   * 
+   * Most errors will cause faults.  However, the specific problem of a
+   * special codepoint encountered in the insertion map that is within
+   * surrogate range will cause a DecodeException indicating that a
+   * surrogate was delta-encoded (which is not allowed).
+   * 
+   * Encoded supplemental characters will be replaced with an equivalent
+   * surrogate pair in the reconstructed string.
+   * 
+   * Parameters:
+   * 
+   *   ivstr : string - the invariant string
+   * 
+   *   ism : Array of integer - the insertion map to apply
+   * 
+   * Return:
+   * 
+   *   the reconstructed string
+   */
+  function reconstruct(ivstr, ism) {
+    
+    var func_name = "reconstruct";
+    var cl, c, c2, i, result;
+    
+    // Check parameters
+    if (typeof(ivstr) !== "string") {
+      fault(func_name, 100);
+    }
+    for(i = 0; i < ivstr.length; i++) {
+      c = ivstr.charCodeAt(i);
+      if ((c >= UC_SURROGATE_MIN) && (c <= UC_SURROGATE_MAX)) {
+        fault(func_name, 105);
+      }
+    }
+    
+    if (!(ism instanceof Array)) {
+      fault(func_name, 110);
+    }
+    if (!(ism.every(function(x) {
+      if (typeof(x) !== "number") {
+        return false;
+      }
+      if (!isFinite(x)) {
+        return false;
+      }
+      if (Math.floor(x) !== x) {
+        return false;
+      }
+      if ((x === 0) || (x > UC_MAX)) {
+        return false;
+      }
+      
+      return true;
+      
+    }))) {
+      fault(func_name, 120);
+    }
+    
+    // Throw exception if any special codepoint contained in the
+    // insertion map is in surrogate range
+    if (!(ism.every(function(x) {
+      if ((x < UC_SURROGATE_MIN) || (x > UC_SURROGATE_MAX)) {
+        return true;
+      } else {
+        return false;
+      }
+      
+    }))) {
+      throw new DecodeException("Surrogate encoded in delta");
+    }
+    
+    // Find the absolute value of the sum of all negative integers in
+    // the insertion map and make sure it is equal to the length of the
+    // invariant string
+    cl = 0;
+    ism.forEach(function(x, j, a) {
+      if (x < 0) {
+        cl = cl - x;
+      }
+    });
+    
+    if (cl !== ivstr.length) {
+      fault(func_name, 200);
+    }
+    
+    // Start the result as an empty string and the invariant index at
+    // the start of the invariant
+    result = "";
+    i = 0;
+    
+    // Reconstruct the original string
+    ism.forEach(function(x, j, a) {
+      // Handle current element
+      if (x < 0) {
+        // Negative value encodes length of invariant sequence, so get
+        // absolute value
+        x = 0 - x;
+        
+        // Invariant sequence should be within remaining invariant
+        if (x > ivstr.length - i) {
+          fault(func_name, 250);
+        }
+        
+        // Transfer invariant sequence to result
+        result = result + ivstr.slice(i, i + x);
+        
+        // Update invariant index
+        i = i + x;
+        
+      } else if ((x > 0xffff) && (x < UC_MAX)) {
+        // Supplemental special codepoint, so begin by getting its
+        // offset within the supplemental area
+        x = x - 0x10000;
+        
+        // Split into 10-bit portions
+        c = (x >> 10) & 0x3ff;
+        c2 = x & 0x3ff;
+        
+        // Get the high and low surrogate codepoints
+        c = c + UC_HISUR_MIN;
+        c2 = c2 + UC_LOSUR_MIN;
+        
+        // Append the surrogate pair to the result string
+        result = result + String.fromCharCode(c, c2);
+        
+      } else if ((x > 1) && (x <= 0xffff) &&
+                  ((x < UC_SURROGATE_MIN) || (x > UC_SURROGATE_MAX))) {
+        // Non-surrogate, non-supplemental special codepoint, so just
+        // append it to string
+        result = result + String.fromCharCode(x);
+        
+      } else {
+        // Shouldn't happen
+        fault(func_name, 300);
+      }
+      
+    });
+    
+    // Return reconstructed original string
+    return result;
+  }
+
+  /*
    * Given an insertion map, generate an equivalent oplist.
    * 
    * CAUTION:  this function will leave the given insertion map array in
@@ -1264,11 +1421,6 @@
       throw new EncodeException("Input may not be empty", false);
     }
     
-    // Make sure raw length in UTF-16 characters does not exceed limit
-    if (str.length > LENGTH_LIMIT) {
-      throw new EncodeException("Input is too long", true);
-    }
-    
     // Go through each UTF-16 character of the input string and verify
     // that no ASCII control codes, no slashes, and all surrogates are
     // properly paired
@@ -1319,6 +1471,11 @@
       if ((c >= UC_HISUR_MIN) && (c <= UC_HISUR_MAX)) {
         i++;
       }
+    }
+    
+    // Make sure length in codepoints does not exceed limit
+    if (getCPC(str) > LENGTH_LIMIT) {
+      throw new EncodeException("Input is too long", true);
     }
     
     // Check whether there is at least one ASCII uppercase letter within
@@ -1714,7 +1871,7 @@
   function decode(str) {
     
     var i, j, c, t;
-    var suf, ar, ls, c_p, c_n, i_p, i_n;
+    var suf, ar, ls, c_p, c_n, i_p, i_n, upper_state;
     
     // Check parameter type
     if (typeof(str) !== "string") {
@@ -1945,17 +2102,168 @@
       c_n = i_n;
     });
     
+    // Reconstruct the full string with control codes ------------------
     
-    // @@TODO:
-    var tim = oplistToImap(ar, str.length);
-    str = "[";
-    tim.forEach(function(x, i, a) {
-      if (i > 0) {
-        str = str + ", ";
+    // Convert the oplist to an insertion map
+    ar = oplistToImap(ar, str.length);
+    
+    // Apply the insertion map to the invariant string to reconstruct
+    // the full string with control codes
+    str = reconstruct(str, ar);
+    
+    // Apply casing control codes --------------------------------------
+    
+    // Start with casing state in lowercase
+    upper_state = false;
+    
+    // Go through the string and interpret casing controls
+    for(i = 0; i < str.length; i++) {
+      // Get current codepoint
+      c = str.charCodeAt(i);
+      
+      // Handle control codes and ASCII letters (which are all lowercase
+      // at this point)
+      if ((c >= ASC_LOWER_A) && (c <= ASC_LOWER_Z)) {
+        // Lowercase letter; if casing state is uppercase, change this
+        // letter to uppercase
+        if (upper_state) {
+          if ((i > 0) && (i < str.length - 1)) {
+            str = str.slice(0, i)
+                  + String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A)
+                  + str.slice(i + 1);
+          } else if (i > 0) {
+            str = str.slice(0, i)
+                  + String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A);
+            
+          } else if (i < str.length - 1) {
+            str = String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A)
+                  + str.slice(i + 1);
+          } else {
+            str = String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A);
+          }
+        }
+        
+      } else if (c === ASC_CTL_SI) {
+        // SI control, so switch casing state to uppercase
+        upper_state = true;
+        
+      } else if (c === ASC_CTL_SO) {
+        // SO control, so switch casing state to lowercase
+        upper_state = false;
+        
+      } else if (c === ASC_CTL_SUB) {
+        // Invert next letter, so first make sure that there is a next
+        // character and that it is a letter, which is always lowercase
+        // at this point
+        if (i >= str.length - 1) {
+          throw new DecodeException("Invalid SUB casing control");
+        }
+        c = str.charCodeAt(i + 1);
+        if ((c < ASC_LOWER_A) || (c > ASC_LOWER_Z)) {
+          throw new DecodeException("Invalid SUB casing control");
+        }
+        
+        // Increment i so that we are at the inverted letter position
+        // and so we will skip over this letter on next loop iteration
+        i++;
+        
+        // Next letter is always lowercase at this point, so switch it
+        // to uppercase if in lowercase casing state, otherwise leave it
+        // alone
+        if (!upper_state) {
+          if ((i > 0) && (i < str.length - 1)) {
+            str = str.slice(0, i)
+                  + String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A)
+                  + str.slice(i + 1);
+          } else if (i > 0) {
+            str = str.slice(0, i)
+                  + String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A);
+            
+          } else if (i < str.length - 1) {
+            str = String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A)
+                  + str.slice(i + 1);
+          } else {
+            str = String.fromCharCode(c - ASC_LOWER_A + ASC_UPPER_A);
+          }
+        }
       }
-      str = str + x;
-    });
-    str = str + "]";
+    }
+    
+    // Drop all SI SO SUB casing control codes from the string
+    str = str.replace(/[\u000e\u000f\u001a]/g, "");
+    
+    // Apply dot control codes -----------------------------------------
+    
+    // Replace all RS control codes with ASCII periods
+    str = str.replace(/\u001e/g, ".");
+    
+    // Normalization and final checking --------------------------------
+    
+    // Normalize to NFC
+    str = str.normalize("NFC");
+    
+    // Make sure result is not empty
+    if (str.length < 1) {
+      throw new DecodeException("Result is empty");
+    }
+    
+    // Go through each UTF-16 character of the input string and verify
+    // that no ASCII control codes, no slashes, and all surrogates are
+    // properly paired
+    for(i = 0; i < str.length; i++) {
+      // Get current character code
+      c = str.charCodeAt(i);
+      
+      // Check that not an ASCII control
+      if ((c <= ASC_CTL_MAX) || (c === ASC_CTL_DEL)) {
+        throw new DecodeException(
+          "Result contains unrecognized ASCII control codes");
+      }
+      
+      // Check that no forward slashes
+      if (c === ASC_SLASH) {
+        throw new DecodeException("Result contains forward slashes");
+      }
+      
+      // Check that no backslashes
+      if (c === ASC_BACKSLASH) {
+        throw new DecodeException("Result contains backslashes");
+      }
+      
+      // Check that this is not a low surrogate, which would indicate an
+      // improperly paired surrogate
+      if ((c >= UC_LOSUR_MIN) && (c <= UC_LOSUR_MAX)) {
+        throw new DecodeException(
+          "Result contains improper surrogates");
+      }
+      
+      // If this is a high surrogate, check that this is not the last
+      // character and that it is followed by a low surrogate
+      if ((c >= UC_HISUR_MIN) && (c <= UC_HISUR_MAX)) {
+        if (i >= str.length - 1) {
+          throw new DecodeException(
+            "Result contains improper surrogates");
+        }
+        c2 = str.charCodeAt(i + 1);
+        if ((c2 < UC_LOSUR_MIN) || (c2 > UC_LOSUR_MAX)) {
+          throw new DecodeException(
+            "Result contains improper surrogates");
+        }
+      }
+      
+      // If we are on a high surrogate, skip the next low surrogate,
+      // which we already checked
+      if ((c >= UC_HISUR_MIN) && (c <= UC_HISUR_MAX)) {
+        i++;
+      }
+    }
+    
+    // Make sure length in codepoints does not exceed limit
+    if (getCPC(str) > LENGTH_LIMIT) {
+      throw new DecodeException("Result is too long");
+    }
+    
+    // All checks pass, so return the decoded original file name
     return str;
   }
 
