@@ -34,12 +34,16 @@
   var ASC_DOT        = 0x2e;
   var ASC_SLASH      = 0x2f;
   var ASC_ZERO       = 0x30;
+  var ASC_FOUR       = 0x34;
   var ASC_NINE       = 0x39;
   var ASC_UPPER_A    = 0x41;
   var ASC_UPPER_Z    = 0x5a;
   var ASC_BACKSLASH  = 0x5c;
   var ASC_UNDERSCORE = 0x5f;
   var ASC_LOWER_A    = 0x61;
+  var ASC_LOWER_M    = 0x6d;
+  var ASC_LOWER_S    = 0x73;
+  var ASC_LOWER_Y    = 0x79; 
   var ASC_LOWER_Z    = 0x7a;
   var ASC_CTL_DEL    = 0x7f;
 
@@ -54,6 +58,11 @@
   
   var UC_LOSUR_MIN = 0xdc00;
   var UC_LOSUR_MAX = 0xdfff;
+  
+  /*
+   * Maximum Unicode codepoint.
+   */
+  var UC_MAX = 0x10ffff;
   
   /*
    * Prefix strings.
@@ -826,6 +835,165 @@
   }
 
   /*
+   * Given an oplist and the invariant string length, generate an
+   * equivalent insertion map.
+   * 
+   * This function is the inverse of imapToOplist().  Faults will occur
+   * if there is any problem with the oplist.
+   * 
+   * Parameters:
+   * 
+   *   opl : Array of arrays - the oplist to transform
+   * 
+   *   isl : integer - the length of the invariant string
+   * 
+   * Return:
+   * 
+   *   the generated insertion map
+   */
+  function oplistToImap(opl, isl) {
+    
+    var func_name = "oplistToImap";
+    var ism;
+    
+    // Check parameters
+    if (!(opl instanceof Array)) {
+      fault(func_name, 100);
+    }
+    if (!(opl.every(function(x) {
+      if (!(x instanceof Array)) {
+        return false;
+      }
+      if (x.length !== 2) {
+        return false;
+      }
+      if ((typeof(x[0]) !== "number") ||
+          (typeof(x[1]) !== "number")) {
+        return false;
+      }
+      if ((!isFinite(x[0])) || (!isFinite(x[1]))) {
+        return false;
+      }
+      if ((Math.floor(x[0]) !== x[0]) ||
+          (Math.floor(x[1]) !== x[1])) {
+        return false;
+      }
+      if ((x[0] < 0) || (x[1] < 1) || (x[1] > UC_MAX)) {
+        return false;
+      }
+      
+      return true;
+      
+    }))) {
+      fault(func_name, 110);
+    }
+    
+    if (typeof(isl) !== "number") {
+      fault(func_name, 120);
+    }
+    if (!isFinite(isl)) {
+      fault(func_name, 130);
+    }
+    if (Math.floor(isl) !== isl) {
+      fault(func_name, 140);
+    }
+    if (isl < 0) {
+      fault(func_name, 150);
+    }
+    
+    // Start insertion map empty
+    ism = [];
+    
+    // If invariant string is not empty, insert a negative value
+    // covering the whole invariant string
+    if (isl > 0) {
+      ism.push(0 - isl);
+    }
+    
+    // Build the insertion map by applying all the insertion ops
+    opl.forEach(function(x, i, a) {
+      
+      var p, j, b, pb, t;
+      
+      // Get the insertion position of the current op
+      p = x[0];
+      
+      // Find the greatest j such that the base position in the
+      // insertion map at index j does not exceed p; j may also be equal
+      // to the length of the insertion map
+      for(j = 0; j <= ism.length; j++) {
+        // If not first insertion map element, store previous b value
+        if (j > 0) {
+          pb = b;
+        }
+        
+        // Compute base at j
+        if (j < 1) {
+          b = 0;
+        } else {
+          if (ism[j - 1] > 0) {
+            b++;
+          } else {
+            b = b - ism[j - 1];
+          }
+        }
+        
+        // If our base at j has exeeded the insertion position, greatest
+        // j is previous element; if our base at j is equal to the
+        // insertion position, then greatest j is current element; else
+        // continue search
+        if (b > p) {
+          j--;
+          b = pb;
+          break;
+        } else if (b === p) {
+          break;
+        }
+        
+        // If we get here and we've reached the element beyond the end
+        // of the insertion map, the oplist was invalid
+        if (j >= ism.length) {
+          fault(func_name, 200);
+        }
+      }
+      
+      // Handle insertion cases
+      if ((j >= ism.length) && (b === p)) {
+        // j was beyond end of insertion array, so we need to append the
+        // special codepoint to the end of the insertion array
+        ism.push(x[1]);
+        
+      } else if ((j < ism.length) && (b === p)) {
+        // j not beyond end of insertion array and element at index j
+        // has base matching insertion point, so insert special
+        // codepoint before index j in insertion array
+        ism.splice(j, 0, x[1]);
+        
+      } else if ((j < ism.length) && (b < p)) {
+        // j not beyond end of insertion array and element at index j
+        // has base that is less than insertion point, so it must be a
+        // negative value that we have to split and insert the new
+        // codepoint in the middle
+        t = 0 - (p - b);
+        ism.splice(
+                j,
+                1,
+                t,
+                x[1],
+                ism[j] - t);
+      
+      } else {
+        // Shouldn't happen
+        fault(func_name, 300);
+      }
+      
+    });
+    
+    // Return the generated insertion map
+    return ism;
+  }
+
+  /*
    * Encode an integer value into a FlexDelta string.
    * 
    * The FlexDelta encoding is defined in FlexDelta.md.  The given
@@ -921,13 +1089,136 @@
       v = v + ASC_LOWER_A;
       
     } else {
-      v = v -26 + ASC_ZERO;
+      v = v - 26 + ASC_ZERO;
     }
     
     // Prefix lead byte digit to the result
     result = String.fromCharCode(v) + result;
     
     // Return result
+    return result;
+  }
+
+  /*
+   * Decode a FlexDelta string into an integer value.
+   * 
+   * The FlexDelta encoding is defined in FlexDelta.md.  The given
+   * parameter must be a non-empty string.  If the string is not a valid
+   * FlexDelta encoding, then a DecodeException is thrown.
+   * 
+   * The returned integer will be in range [0, 362797055].
+   * 
+   * Parameters:
+   * 
+   *   str : string - the FlexDelta encoding to decode
+   * 
+   * Return:
+   * 
+   *   decoded integer value
+   */
+  function decodeFlex(str) {
+    
+    var func_name = "decodeFlex";
+    var c, result, elen, i, lbound;
+    
+    // Check parameter
+    if (typeof(str) !== "string") {
+      fault(func_name, 100);
+    }
+    if (str.length < 1) {
+      fault(func_name, 110);
+    }
+    
+    // Convert string to lowercase
+    str = str.toLowerCase();
+    
+    // Get first character code
+    c = str.charCodeAt(0);
+    
+    // Determine encoding length and initial numeric value from first
+    // character code
+    if ((c >= ASC_LOWER_A) && (c <= ASC_LOWER_Z)) {
+      c = c - ASC_LOWER_A;
+      
+    } else if ((c >= ASC_ZERO) && (c <= ASC_NINE)) {
+      c = c - ASC_ZERO + 26;
+      
+    } else {
+      throw new DecodeException("Invalid FlexDelta encoding");
+    }
+    
+    if (c < 12) {
+      elen = 2;
+      result = c;
+    
+    } else if (c < 18) {
+      elen = 3;
+      result = c - 12;
+      
+    } else if (c < 24) {
+      elen = 4;
+      result = c - 18;
+      
+    } else if (c < 30) {
+      elen = 5;
+      result = c - 24;
+      
+    } else {
+      elen = 6;
+      result = c - 30;
+    }
+    
+    // Make sure encoding length matches length of string
+    if (str.length !== elen) {
+      throw new DecodeException("Invalid FlexDelta parsing");
+    }
+    
+    // Combine all remaining characters into result
+    for(i = 1; i < str.length; i++) {
+      // Get character code
+      c = str.charCodeAt(i);
+      
+      // Convert to numeric value
+      if ((c >= ASC_LOWER_A) && (c <= ASC_LOWER_Z)) {
+        c = c - ASC_LOWER_A;
+        
+      } else if ((c >= ASC_ZERO) && (c <= ASC_NINE)) {
+        c = c - ASC_ZERO + 26;
+        
+      } else {
+        throw new DecodeException("Invalid FlexDelta encoding");
+      }
+      
+      // Combine into result
+      result = (result * 36) + c;
+    }
+    
+    // Based on encoding length, make sure result is not "overlong"
+    if (elen === 2) {
+      lbound = 0;
+      
+    } else if (elen === 3) {
+      lbound = 432;
+      
+    } else if (elen === 4) {
+      lbound = 7776;
+      
+    } else if (elen === 5) {
+      lbound = 279936;
+      
+    } else if (elen === 6) {
+      lbound = 10077696;
+      
+    } else {
+      // Shouldn't happen
+      fault(func_name, 200);
+    }
+    
+    if (result < lbound) {
+      throw new DecodeException("Overlong FlexDelta encoding");
+    }
+    
+    // Return decoded value
     return result;
   }
 
@@ -1422,8 +1713,8 @@
    */
   function decode(str) {
     
-    var i;
-    var suf;
+    var i, j, c, t;
+    var suf, ar, ls, c_p, c_n, i_p, i_n;
     
     // Check parameter type
     if (typeof(str) !== "string") {
@@ -1505,8 +1796,167 @@
       }
     }
     
+    // GENERAL DECODING PROCEDURE ======================================
+    
+    // Split into invariant and delta strings --------------------------
+    
+    // Begin by dropping the first four characters to remove the xz--
+    // prefix
+    str = str.slice(4);
+    
+    // Let j be the length of the "label" at the start of the file name;
+    // if there are no periods in the file name, the label is the whole
+    // file name, otherwise it is everything up to but excluding the
+    // first period; we know the period isn't the first character
+    // because otherwise it would be a period following a hyphen, which
+    // isn't allowed for a StrictName, which we already checked earlier
+    j = str.indexOf(".");
+    if (j < 0) {
+      j = str.length;
+    }
+    
+    // Let i be the start of the delta suffix; if there are no hyphens
+    // within the label, the delta suffix is the whole label; otherwise,
+    // the delta suffix starts at the last hyphen within the label and
+    // proceeds to the end of the label
+    i = str.lastIndexOf("-", j - 1);
+    if (i < 0) {
+      i = 0;
+    }
+    
+    // Extract the delta suffix from the string, which will also leave
+    // the string as the invariant string (which may be empty)
+    suf = str.slice(i, j);
+    if ((j < str.length) && (i > 0)) {
+      str = str.slice(0, i) + str.slice(j, str.length);
+    } else if (j < str.length) {
+      str = str.slice(j, str.length);
+    } else if (i > 0) {
+      str = str.slice(0, i);
+    } else {
+      str = "";
+    }
+    
+    // If there is a hyphen at the start of the delta suffix, drop it
+    if (suf.length > 0) {
+      if (suf.charAt(0) === "-") {
+        if (suf.length > 1) {
+          suf = suf.slice(1);
+        } else {
+          suf = "";
+        }
+      }
+    }
+    
+    // Delta suffix may not be empty
+    if (suf.length < 1) {
+      throw new DecodeException("Delta suffix is empty");
+    }
+    
+    // If delta suffix is special marker aa, change it to empty
+    if (suf === "aa") {
+      suf = "";
+    }
+    
+    // Split delta suffix into array -----------------------------------
+    
+    // Begin with an empty delta array
+    ar = [];
+    
+    // Go through delta suffix and split at FlexDelta boundaries
+    for(i = 0; i < suf.length; i++) {
+      // Get current character code
+      c = suf.charCodeAt(i);
+      
+      // Let j be the length of this FlexDelta substring, based on the
+      // first letter range from the "char/first" table in FlexDelta.md
+      if ((c >= ASC_LOWER_A) && (c < ASC_LOWER_M)) {
+        j = 2;
+      
+      } else if ((c >= ASC_LOWER_M) && (c < ASC_LOWER_S)) {
+        j = 3;
+        
+      } else if ((c >= ASC_LOWER_S) && (c < ASC_LOWER_Y)) {
+        j = 4;
+        
+      } else if ((c === ASC_LOWER_Y) || (c === ASC_LOWER_Z) ||
+                  ((c >= ASC_ZERO) && (c < ASC_FOUR))) {
+        j = 5;
+        
+      } else if ((c >= ASC_FOUR) && (c <= ASC_NINE)) {
+        j = 6;
+        
+      } else {
+        throw new DecodeException("Invalid characters in delta suffix");
+      }
+      
+      // Add j to i to get the character index after this current
+      // FlexDelta substring, and make sure j is no more than the length
+      // of the delta suffix
+      j = i + j;
+      if (j > suf.length) {
+        throw new DecodeException("Failed to parse delta suffix");
+      }
+      
+      // Extract the current FlexDelta substring and add it to delta
+      // array
+      ar.push(suf.slice(i, j));
+      
+      // Set i to one less than j so that next loop iteration will start
+      // at index j
+      i = j - 1;
+    }
+    
+    // Decode delta array into oplist ----------------------------------
+    
+    // Transform each element in delta array into numeric integer delta
+    // value
+    ar.forEach(function(x, z, a) {
+      a[z] = decodeFlex(x);
+    });
+    
+    // Initial delta decoding state has ls as the length of the
+    // invariant string and (c_p, c_n) as (0, 1)
+    ls = str.length;
+    c_p = 0;
+    c_n = 1;
+    
+    // Transform each element in delta array from numeric integer delta
+    // value into insertion op to yield the oplist
+    ar.forEach(function(x, z, a) {
+      // Compute t value by applying delta to current position
+      t = c_p + x;
+      
+      // Use t to compute the new position and codepoint value
+      i_p = (t % (ls + 1));
+      i_n = c_n + Math.floor(t / (ls + 1));
+      
+      // Check that numeric codepoint value doesn't exceed Unicode
+      if (i_n > UC_MAX) {
+        throw new DecodeException("Delta exceeds maximum codepoint");
+      }
+      
+      // Replace current array element with the decoded insertion op
+      a[z] = [i_p, i_n];
+      
+      // Update state
+      ls++;
+      c_p = i_p;
+      c_n = i_n;
+    });
+    
+    
     // @@TODO:
-    return "?";
+    var tim = oplistToImap(ar, str.length);
+    str = "[";
+    tim.forEach(function(x, i, a) {
+      if (i > 0) {
+        str = str + ", ";
+      }
+      str = str + x;
+    });
+    str = str + "]";
+    return str;
   }
 
   /*
