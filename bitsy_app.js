@@ -159,7 +159,10 @@
   function handleEncode() {
     
     var func_name = "handleEncode";
-    var eInput, eOutput, r;
+    var eInput, eOutput, eReverse, r, stopFlag;
+    
+    // Clear stopFlag
+    stopFlag = false;
     
     // Reset ratio display
     setRatio(-1);
@@ -167,6 +170,7 @@
     // Get the input and output boxes
     eInput = document.getElementById("txtInput");
     eOutput = document.getElementById("txtOutput");
+    eReverse = document.getElementById("txtInverse");
     
     if ((eInput == null) || (eOutput == null)) {
       fault(func_name, 100);
@@ -177,6 +181,7 @@
       eOutput.value = bitsy.encode(eInput.value);
       
     } catch (ex) {
+      stopFlag = true;
       if (ex instanceof bitsy.EncodeException) {
         // EncodeException, so report the message
         eOutput.value = "ENCODING ERROR: " + ex;
@@ -195,6 +200,26 @@
         setRatio(r);
       }
     }
+    
+    // Try to decode the encoded output, handling any exceptions; but
+    // just clear if there was a problem previously
+    if (!stopFlag) {
+      try {
+        eReverse.value = bitsy.decode(eOutput.value);
+        
+      } catch (ex) {
+        if (ex instanceof bitsy.DecodeException) {
+          // DecodeException, so report the message
+          eReverse.value = "DECODING ERROR: " + ex;
+        
+        } else {
+          // Something besides DecodeException
+          eReverse.value = "UNEXPECTED EXCEPTION: " + ex;
+        }
+      }
+    } else {
+      eReverse.value = "";
+    }
   }
   
   /*
@@ -203,7 +228,10 @@
   function handleDecode() {
     
     var func_name = "handleDecode";
-    var eInput, eOutput, r;
+    var eInput, eOutput, eReverse, r, stopFlag;
+    
+    // Clear stopFlag
+    stopFlag = false;
     
     // Reset ratio display
     setRatio(-1);
@@ -211,6 +239,7 @@
     // Get the input and output boxes
     eInput = document.getElementById("txtInput");
     eOutput = document.getElementById("txtOutput");
+    eReverse = document.getElementById("txtInverse");
     
     if ((eInput == null) || (eOutput == null)) {
       fault(func_name, 100);
@@ -221,6 +250,7 @@
       eOutput.value = bitsy.decode(eInput.value);
       
     } catch (ex) {
+      stopFlag = true;
       if (ex instanceof bitsy.DecodeException) {
         // DecodeException, so report the message
         eOutput.value = "DECODING ERROR: " + ex;
@@ -238,6 +268,26 @@
         r = (eInput.value.length - 4) / eOutput.value.length;
         setRatio(r);
       }
+    }
+    
+    // Try to encode the decoded output, handling any exceptions; but
+    // just clear if there was a problem previously
+    if (!stopFlag) {
+      try {
+        eReverse.value = bitsy.encode(eOutput.value);
+        
+      } catch (ex) {
+        if (ex instanceof bitsy.EncodeException) {
+          // EncodeException, so report the message
+          eReverse.value = "ENCODING ERROR: " + ex;
+        
+        } else {
+          // Something besides EncodeException
+          eReverse.value = "UNEXPECTED EXCEPTION: " + ex;
+        }
+      }
+    } else {
+      eReverse.value = "";
     }
   }
   
