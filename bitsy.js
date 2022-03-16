@@ -1422,13 +1422,91 @@
    */
   function decode(str) {
     
+    var i;
+    var suf;
+    
     // Check parameter type
     if (typeof(str) !== "string") {
       throw new DecodeException("Wrong input type");
     }
     
+    // The input should be a StrictName
+    if (!isStrictName(str)) {
+      throw new DecodeException("Input is not StrictName");
+    }
+    
+    // Letter case can not be trusted, so convert everything to
+    // lowercase
+    str = str.toLowerCase();
+    
+    // If the input is not at least four characters, or it does not
+    // start with xz-- then it had a special encoding, so handle the
+    // special decoding
+    if (str.length < 4) {
+      // Special encoding with no prefix, and we've already converted
+      // all letters to lowercase, so return as-is
+      return str;
+      
+    } else if (str.slice(0, 4) !== "xz--") {
+      // Special encoding, check which kind
+      if (str.slice(0, 4) === "xq--") {
+        // Escaping prefix, first make sure it is at least six
+        // characters which is required for the suffix
+        if (str.length < 6) {
+          throw new DecodeException("Invalid escape encoding");
+        }
+        
+        // Locate and extract the suffix
+        i = str.indexOf(".");
+        if (i < 0) {
+          // No period in file name, so suffix is last two characters
+          suf = str.slice(-2);
+          str = str.slice(0, -2);
+          
+        } else {
+          // Period in file name, so check that first period is at least
+          // the seventh character
+          if (i < 6) {
+            throw new DecodeException("Invalid escape encoding");
+          }
+          
+          // Suffix is two characters immediately before the period
+          suf = str.slice(i - 2, i);
+          str = str.slice(0, i - 2) + str.slice(i);
+        }
+        
+        // Interpret the suffix
+        if (suf === "-q") {
+          // First two characters of file name need to be xq, and they
+          // already are xq, so we don't need to do anything
+          str = str;
+          
+        } else if (suf === "-z") {
+          // Replace first two characters of file name with xz
+          str = "xz" + str.slice(2);
+          
+        } else if (suf === "-x") {
+          // Drop the first four characters of file name
+          str = str.slice(4);
+          
+        } else {
+          // Unrecognized suffix
+          throw new DecodeException("Invalid escape encoding");
+        }
+        
+        // Now that suffix is interpreted and everything has been
+        // converted to lowercase already, return the decoded file name
+        return str;
+        
+      } else {
+        // No prefix, and we've already converted all letters to
+        // lowercase, so return as-is
+        return str;
+      }
+    }
+    
     // @@TODO:
-    return str;
+    return "?";
   }
 
   /*
