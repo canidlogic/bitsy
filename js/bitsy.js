@@ -224,7 +224,7 @@
    * Check whether a string is at least "almost" a StrictName.
    * 
    * This returns true if the string satisfies all constraints except
-   * constraint 7 in StrictName.md.  This also returns for all
+   * constraint 7 in StrictName.md.  This also returns true for all
    * StrictNames.
    * 
    * Parameters:
@@ -847,7 +847,7 @@
         // Append the surrogate pair to the result string
         result = result + String.fromCharCode(c, c2);
         
-      } else if ((x > 1) && (x <= 0xffff) &&
+      } else if ((x > 0) && (x <= 0xffff) &&
                   ((x < UC_SURROGATE_MIN) || (x > UC_SURROGATE_MAX))) {
         // Non-surrogate, non-supplemental special codepoint, so just
         // append it to string
