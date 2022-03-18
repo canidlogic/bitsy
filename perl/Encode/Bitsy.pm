@@ -1,3 +1,19 @@
+package Encode::Bitsy;
+use parent qw(Exporter);
+use strict;
+
+# Core dependencies
+use Unicode::Normalize;
+
+#
+# Export lists
+# ============
+#
+
+# Symbols to export by default
+#
+our @EXPORT = qw(encodeBitsy);
+
 #
 # Constants
 # =========
@@ -94,9 +110,9 @@ sub isInvariantCode {
   if ((($cpv >= $ASC_ZERO) and ($cpv <= $ASC_NINE)) or
       (($cpv >= $ASC_UPPER_A) and ($cpv <= $ASC_UPPER_Z)) or
       (($cpv >= $ASC_LOWER_A) and ($cpv <= $ASC_LOWER_Z)) or
-      ($cpv === $ASC_HYPHEN) or
-      ($cpv === $ASC_UNDERSCORE) or
-      ($cpv === $ASC_DOT)) {
+      ($cpv == $ASC_HYPHEN) or
+      ($cpv == $ASC_UNDERSCORE) or
+      ($cpv == $ASC_DOT)) {
     return 1;
   } else {
     return 0;
@@ -186,7 +202,7 @@ sub isStrictName {
   # the empty string if dot is first character, or else the substring
   # up to but excluding the first dot
   $str =~ /^[^\.]*/;
-  $dc = $1;
+  my $dc = $1;
   
   # Check if device candidate matches one of the reserved names
   if (($dc =~ /^aux$/i) or
@@ -242,21 +258,21 @@ sub deriveInsertions {
   my $icount = 0;
   
   # Go through the string character by character
-  for my $c (split / */, $str) {
+  for my $c (split //, $str) {
   
     # Get current character code
-    $c = ord($c);
+    my $cc = ord($c);
     
     # Current character may not be nul and must be in Unicode range
-    (($c > 0) and ($c <= $UC_MAX)) or die "Invalid input, stopped";
+    (($cc > 0) and ($cc <= $UC_MAX)) or die "Invalid input, stopped";
     
     # Current character may not be surrogate
-    (($c < $UC_SURROGATE_MIN) or ($c > $UC_SURROGATE_MAX)) or
+    (($cc < $UC_SURROGATE_MIN) or ($cc > $UC_SURROGATE_MAX)) or
       die "Invalid input, stopped";
   
     # Check whether current codepoint is invariant and handle
     # appropriately
-    if (isInvariantCode($c)) {
+    if (isInvariantCode($cc)) {
       # Invariant code, so just increment the invariant counter
       $icount++;
       
@@ -269,7 +285,7 @@ sub deriveInsertions {
       }
       
       # Now add the special character codepoint into the array
-      push @result, ($c);
+      push @result, ($cc);
     }
   }
   
@@ -311,7 +327,7 @@ sub deriveInvariant {
   # Get and check parameters
   my $str = shift;
   my $ism = shift;
-  
+
   (not ref($str)) or die "Wrong parameter type, stopped";
   $str = "$str";
   
@@ -329,7 +345,10 @@ sub deriveInvariant {
   
   # Step through the insertion map element by element to build the 
   # result
-  for my $x (@$ism) {
+  for my $y (@$ism) {
+    
+    # Get copy of value
+    my $x = $y;
     
     # Check what kind of element we have
     if ($x < 0) {
@@ -352,7 +371,7 @@ sub deriveInvariant {
       # Update the char_read counter
       $char_read = $char_read + $x;
       
-    } else if ($x > 0) {
+    } elsif ($x > 0) {
       # Special code in insertion map that won't be added to the
       # invariant string, so we just need to skip over it; increase
       # char_read by one
@@ -447,7 +466,11 @@ sub reconstruct {
   my $i = 0;
   
   # Reconstruct the original string
-  for my $x (@$ism) {
+  for my $y (@$ism) {
+    
+    # Get copy of current value
+    my $x = $y;
+    
     # Handle current element
     if ($x < 0) {
       # Negative value encodes length of invariant sequence, so get
@@ -464,7 +487,7 @@ sub reconstruct {
       # Update invariant index
       $i = $i + $x;
       
-    } else if (($x > 0) and (x <= $UC_MAX) and
+    } elsif (($x > 0) and ($x <= $UC_MAX) and
                 (($x < $UC_SURROGATE_MIN) or
                   ($x > $UC_SURROGATE_MAX))) {
       # Non-surrogate, Unicode special codepoint, so just append it to
@@ -597,19 +620,19 @@ sub imapToOplist {
     my $ccount = 0;
     for(my $i = 0; $i < scalar(@$ism); $i++) {
       # Get current element
-      $x = $ism->[$i];
+      my $x = $ism->[$i];
       
       # Handle different element values
       if ($x < 0) {
         # Negative values increase ccount by their absolute value
         $ccount = $ccount - $x;
         
-      } else if ($x == 0) {
+      } elsif ($x == 0) {
         # Zero values (representing a special character that has already
         # been inserted) increment ccount
         $ccount++;
         
-      } else if ($x == $min_val) {
+      } elsif ($x == $min_val) {
         # We found a match for min_val, so add an insertion op
         push @opl, ([$ccount, $min_val]);
         
@@ -689,7 +712,7 @@ sub oplistToImap {
     # map at index j does not exceed p; j may also be equal to the
     # length of the insertion map
     my $j, $b;
-    for($j = 0; $j <= scalar(@$ism); $j++) {
+    for($j = 0; $j <= scalar(@ism); $j++) {
       # If not first insertion map element, store previous b value
       my $pb;
       if ($j > 0) {
@@ -700,10 +723,10 @@ sub oplistToImap {
       if ($j < 1) {
         $b = 0;
       } else {
-        if ($ism->[$j - 1] > 0) {
+        if ($ism[$j - 1] > 0) {
           $b++;
         } else {
-          $b = $b - $ism->[$j - 1];
+          $b = $b - $ism[$j - 1];
         }
       }
       
@@ -715,34 +738,34 @@ sub oplistToImap {
         $j--;
         $b = $pb;
         last;
-      } else if ($b == $p) {
+      } elsif ($b == $p) {
         last;
       }
       
       # If we get here and we've reached the element beyond the end of
       # the insertion map, the oplist was invalid
-      ($j < scalar(@$ism)) or die "Invalid oplist, stopped";
+      ($j < scalar(@ism)) or die "Invalid oplist, stopped";
     }
     
     # Handle insertion cases
-    if (($j >= scalar(@$ism) and ($b == $p)) {
+    if (($j >= scalar(@ism)) and ($b == $p)) {
       # j was beyond end of insertion array, so we need to append the
       # special codepoint to the end of the insertion array
       push @ism, ($x->[1]);
       
-    } else if (($j < scalar(@$ism)) and ($b == $p)) {
+    } elsif (($j < scalar(@ism)) and ($b == $p)) {
       # j not beyond end of insertion array and element at index j has
       # base matching insertion point, so insert special codepoint
       # before index j in insertion array
-      splice @$ism, $j, 0, ($x->[1]);
+      splice @ism, $j, 0, ($x->[1]);
       
-    } else if (($j < scalar(@$ism)) && ($b < $p)) {
+    } elsif (($j < scalar(@ism)) && ($b < $p)) {
       # j not beyond end of insertion array and element at index j has
       # base that is less than insertion point, so it must be a negative
       # value that we have to split and insert the new codepoint in the
       # middle
       my $t = 0 - ($p - $b);
-      splice @$ism, $j, 1, ($t, $x->[1], $ism->[$j] - $t);
+      splice @ism, $j, 1, ($t, $x->[1], $ism[$j] - $t);
     
     } else {
       # Shouldn't happen
@@ -753,3 +776,630 @@ sub oplistToImap {
   # Return the generated insertion map
   return @ism;
 }
+
+# Encode an integer value into a FlexDelta string.
+# 
+# The FlexDelta encoding is defined in FlexDelta.md.  The given 
+# parameter may be any integer in range [0, 362797055].
+# 
+# Parameters:
+# 
+#   1 : integer - the value to encode
+# 
+# Return:
+# 
+#   string containing the FlexDelta encoding of the integer
+#
+sub encodeFlex {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get and check parameters
+  my $v = shift;
+  (not ref($v)) or die "Wrong parameter type, stopped";
+  (int($v) == $v) or die "Wrong parameter type, stopped";
+  $v = int($v);
+  
+  (($v >= 0) and ($v <= 362797055)) or
+    die "Value out of range, stopped";
+  
+  # Determine the encoding length
+  my $elen;
+  if ($v < 432) {
+    $elen = 2;
+  } elsif ($v < 7776) {
+    $elen = 3;
+  } elsif ($v < 279936) {
+    $elen = 4;
+  } elsif ($v < 10077696) {
+    $elen = 5;
+  } else {
+    $elen = 6;
+  }
+
+  # Start the result as an empty string
+  my $result = "";
+  
+  # Compute all the digits that follow the first digit in reverse order
+  for(my $i = 1; $i < $elen; $i++) {
+
+    # Get current digit value and update value
+    my $d = $v % 36;
+    $v = int($v / 36);
+
+    # Determine digit codepoint
+    if ($d < 26) {
+      $d = $d + $ASC_LOWER_A;
+      
+    } else {
+      $d = $d - 26 + $ASC_ZERO;
+    }
+
+    # Prefix this digit to the result
+    $result = chr($d) . $result;
+  }
+  
+  # Now map the remaining value to a leading byte numeric value based on
+  # the table with column "First" in FlexDelta.md
+  if ($elen == 2) {
+    $v = $v + 0;
+    
+  } elsif ($elen == 3) {
+    $v = $v + 12;
+    
+  } elsif ($elen == 4) {
+    $v = $v + 18;
+    
+  } elsif ($elen == 5) {
+    $v = $v + 24;
+    
+  } elsif ($elen == 6) {
+    $v = $v + 30;
+    
+  } else {
+    # Shouldn't happen
+    die "Unexpected";
+  }
+  
+  # Convert leading byte numeric value to letter codepoint
+  if ($v < 26) {
+    $v = $v + $ASC_LOWER_A;
+    
+  } else {
+    $v = $v - 26 + $ASC_ZERO;
+  }
+  
+  # Prefix lead byte digit to the result
+  $result = chr($v) . $result;
+  
+  # Return result
+  return $result;
+}
+
+# Decode a FlexDelta string into an integer value.
+# 
+# The FlexDelta encoding is defined in FlexDelta.md.  The given 
+# parameter must be a string of at least two characters.
+# 
+# The returned integer will be in range [0, 362797055].
+# 
+# Parameters:
+# 
+#   str : string - the FlexDelta encoding to decode
+# 
+# Return:
+# 
+#   decoded integer value
+#
+sub decodeFlex {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong number of parameters, stopped";
+  
+  # Get and check parameters
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  $str = "$str";
+  
+  (length($str) >= 2) or die "Invalid parameter value, stopped";
+  
+  # Convert string to lowercase
+  $str = $str =~ tr/A-Z/a-z/;
+  
+  # Split into first character and trailing characters
+  my $str_first = substr $str, 0, 1;
+  my $str_trail = substr $str, 1;
+  
+  # Get first character code
+  my $c = ord($str_first);
+  
+  # Determine encoding length and initial numeric value from first
+  # character code
+  my $elen;
+  my $result;
+  
+  if (($c >= $ASC_LOWER_A) and ($c <= $ASC_LOWER_Z)) {
+    $c = $c - $ASC_LOWER_A;
+    
+  } elsif (($c >= $ASC_ZERO) and ($c <= $ASC_NINE)) {
+    $c = $c - $ASC_ZERO + 26;
+    
+  } else {
+    die "Invalid FlexDelta encoding";
+  }
+  
+  if ($c < 12) {
+    $elen = 2;
+    $result = $c;
+  
+  } elsif ($c < 18) {
+    $elen = 3;
+    $result = $c - 12;
+    
+  } elsif ($c < 24) {
+    $elen = 4;
+    $result = $c - 18;
+    
+  } elsif ($c < 30) {
+    $elen = 5;
+    $result = $c - 24;
+    
+  } else {
+    $elen = 6;
+    $result = $c - 30;
+  }
+  
+  # Make sure encoding length matches length of string
+  (length($str) == $elen) or die "Invalid FlexDelta parsing";
+  
+  # Combine all remaining characters into result
+  for my $s (split //, $str_trail) {
+    # Get character code
+    $c = ord($s);
+    
+    # Convert to numeric value
+    if (($c >= $ASC_LOWER_A) and ($c <= $ASC_LOWER_Z)) {
+      $c = $c - $ASC_LOWER_A;
+      
+    } elsif (($c >= $ASC_ZERO) and ($c <= $ASC_NINE)) {
+      $c = $c - $ASC_ZERO + 26;
+      
+    } else {
+      die "Invalid FlexDelta encoding";
+    }
+    
+    # Combine into result
+    $result = ($result * 36) + $c;
+  }
+  
+  # Based on encoding length, make sure result is not "overlong"
+  my $lbound;
+  
+  if ($elen == 2) {
+    $lbound = 0;
+    
+  } elsif ($elen == 3) {
+    $lbound = 432;
+    
+  } elsif ($elen == 4) {
+    $lbound = 7776;
+    
+  } elsif ($elen == 5) {
+    $lbound = 279936;
+    
+  } elsif ($elen == 6) {
+    $lbound = 10077696;
+    
+  } else {
+    # Shouldn't happen
+    die "Unexpected";
+  }
+  
+  ($result >= $lbound) or die "Overlong FlexDelta encoding";
+  
+  # Return decoded value
+  return $result;
+}
+
+=item encodeBitsy(str)
+
+Given an original string value, return the Bitsy-encoded string 
+corresponding to that value.
+
+A fault occurs if there is a problem with the given parameter or with
+encoding it to Bitsy.  Use an eval block to catch encoding failures.
+
+=cut
+
+sub encodeBitsy {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong parameter count, stopped";
+  
+  # Get and check parameter
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  $str = "$str";
+  
+  # Make sure input is not empty
+  (length($str) > 0) or die "Input may not be empty";
+  
+  # Go through each codepoint of the input string and verify that no
+  # ASCII control codes, no slashes, everything in Unicode range, and no
+  # surrogates
+  for my $s (split //, $str) {
+  
+    # Get current character code
+    my $c = ord($s);
+    
+    # Check that not an ASCII control
+    (($c > $ASC_CTL_MAX) and ($c != $ASC_CTL_DEL)) or
+      die "Input contains ASCII control codes";
+    
+    # Check that no forward slashes
+    ($c != $ASC_SLASH) or die "Input contains forward slashes";
+    
+    # Check that no backslashes
+    ($c != $ASC_BACKSLASH) or die "Input contains backslashes";
+    
+    # Check that in Unicode range
+    ($c <= $UC_MAX) or die "Input is outside of Unicode range";
+    
+    # Check that not a surrogate
+    (($c < $UC_SURROGATE_MIN) or ($c > $UC_SURROGATE_MAX)) or
+      die "Input contains surrogates";
+  }
+  
+  # Make sure length in codepoints does not exceed limit
+  (length($str) <= $LENGTH_LIMIT) or die "Input is too long";
+  
+  # Check whether there is at least one ASCII uppercase letter within
+  # the string; we don't care about Unicode letters
+  my $has_upper;
+  if ($str =~ /[A-Z]/) {
+    $has_upper = 1;
+  } else {
+    $has_upper = 0;
+  }
+  
+  # Check whether we have one of the special prefixes already on the 
+  # string (we don't need to do a case-insensitive check)
+  my $has_prefix = 0;
+  if (length($str) >= 4) {
+    my $ps = substr $str, 0, 4;
+    if (($ps eq $PREFIX_ENCODE) or ($ps eq $PREFIX_ESCAPE)) {
+      $has_prefix = 1;
+    }
+  }
+  
+  # Check whether input is already a StrictName
+  my $already_strict;
+  if (isStrictName($str)) {
+    $already_strict = 1;
+  } else {
+    $already_strict = 0;
+  }
+  
+  # If already a StrictName, then also already almost strict; else, 
+  # check whether name satisfies weaker "almost" criteria
+  my $almost_strict;
+  if ($already_strict) {
+    $almost_strict = 1;
+  } else {
+    $almost_strict = isAlmostStrict($str);
+  }
+  
+  # If the input is a StrictName AND it doesn't have uppercase letters
+  # AND it doesn't have a prefix, then we can use pass-through encoding
+  # so just return the file name as-is
+  if ($already_strict and (not $has_upper) and (not $has_prefix)) {
+    return $str;
+  }
+  
+  # Otherwise, if the input is a StrictName AND it doesn't have 
+  # uppercase letters BUT it has a prefix, we can use prefix encoding
+  if ($already_strict and (not $has_upper) and $has_prefix) {
+    
+    # Split the string into the second character of the prefix, a
+    # sequence of one or more non-period characters that follow the
+    # prefix, and a sequence of zero or more period and non-period
+    # characters at the end of the string
+    ($str =~ /^x(.)--([^\.]+)(.*)$/) or die "Unexpected";
+    my $sp = $1;
+    my $sa = $2;
+    my $sb = $3;
+    
+    # Return the prefix-encoded result
+    return $PREFIX_ESCAPE . $sa . "-$sp" . $sb;
+  }
+  
+  # Otherwise, if the input is almost strict AND it doesn't have 
+  # uppercase letters AND it doesn't have a prefix, then we can use
+  # device encoding
+  if ($almost_strict and (not $has_upper) and (not $has_prefix)) {
+    
+    # Split the string into a sequence of one or more non-period
+    # characters followed by a sequence of zero or more period and
+    # non-period characters
+    ($str =~ /^([^\.]+)(.*)$/) or die "Unexpected";
+    my $sa = $1;
+    my $sb = $2;
+    
+    # Return the device-encoded result
+    return $PREFIX_ESCAPE . $sa . $SUFFIX_REMOVE . $sb;
+  }
+  
+  # GENERAL ENCODING PROCEDURE =========================================
+  
+  # Unicode normalization ----------------------------------------------
+  
+  # We've already checked the input limitations and handled the special
+  # encoding types; general encoding starts out by normalizing to NFC
+  $str = NFC($str);
+  
+  # Normalization may have changed the length, so do a length check 
+  # again
+  (length($str) > 0) or die "Input normalized to empty";
+  (length($str) <= $LENGTH_LIMIT) or die "Input normalization too long";
+  
+  # Dot conversion -----------------------------------------------------
+  
+  # Initialize the dot limit to -1 indicating limit beyond end of string
+  my $dot_limit = -1;
+  
+  # Scan through the dots in the file name in reverse order, from last
+  # to first
+  for(my $i = rindex $str, ".";
+      $i >= 0;
+      $i = rindex $str, ".", $i) {
+    
+    # We found a dot; get the substring that starts at that dot and runs
+    # to the end of the name
+    my $cx = substr $str, $i;
+    
+    # Check whether dot is proper by prefixing an "a" to it and checking
+    # whether the result is a StrictName
+    if (isStrictName("a" . $cx)) {
+      # Dot is proper, so update dot limit and continue
+      $dot_limit = $i;
+      
+    } else {
+      # Dot is not proper so do not update dot limit and stop scanning
+      last;
+    }
+    
+    # If we just handled the first character of the string, then leave
+    # the loop; otherwise, decrement i so that the search resumes in the
+    # next iteration
+    if ($i < 1) {
+      last;
+    } else {
+      $i--;
+    }
+  }
+  
+  # If dot_limit is zero, then change it to one; we always want to
+  # convert an initial dot to RS, even if it is technically proper; we
+  # handled special case "." earlier with pass-through encoding, so the
+  # increased dot_limit will always still refer to a character that
+  # exists within the string
+  if ($dot_limit == 0) {
+    $dot_limit = 1;
+  }
+  
+  # If dot_limit remains at -1 then there are no proper dots, so convert
+  # all dots to RS control codes; otherwise, convert only dots before
+  # the dot limit to RS control codes
+  if ($dot_limit < 0) {
+    # No proper dots, so convert all dots to RS control codes
+    $str =~ s/\./\x{1e}/g;
+    
+  } else {
+    # Dot limit is in effect, and we know both that it is greater than
+    # zero at this point and also refers to a character that exists
+    # within the string; split string into two substrings, one before
+    # the dot limit and the other from the dot limit to the end of the
+    # string
+    my $sa = substr $str, 0, $dot_limit;
+    my $sb = substr $str, $dot_limit;
+    
+    # Only convert dots in the substring prior to the dot limit to RS
+    # control codes
+    $sa =~ s/\./\x{1e}/g;
+    
+    # Rejoin the strings
+    $str = $sa . $sb;
+  }
+  
+  # Casing conversion --------------------------------------------------
+  
+  # The casing state will start out lowercase
+  my $upper_state = 0;
+  
+  # Split the string into an array where each element of the array is a
+  # single character
+  my @stra = split //, $str;
+  
+  # Go through the string array character by character
+  for(my $i = 0; $i <= $#stra; $i++) {
+    # Get the character code at this location
+    my $c = ord($stra[$i]);
+    
+    # Figure out the ASCII letter case of this character, or skip this
+    # character if it is not an ASCII letter
+    my $upper_c;
+    if (($c >= $ASC_UPPER_A) and ($c <= $ASC_UPPER_Z)) {
+      # Uppercase
+      $upper_c = 1;
+      
+    } elsif (($c >= $ASC_LOWER_A) and ($c <= $ASC_LOWER_Z)) {
+      # Lowercase
+      $upper_c = 0;
+      
+    } else {
+      # Not an ASCII letter, so skip
+      next;
+    }
+    
+    # If letter case of current ASCII letter matches the current case
+    # state, then we do not need to do anything so skip it
+    if ($upper_c == $upper_state) {
+      next;
+    }
+    
+    # If we got here, we found an ASCII letter that does not match the
+    # current case state, so we will need to examine the case of the
+    # next ASCII letter (if there is one) to determine which casing
+    # control code to use; begin by setting the upper_next flag to the
+    # inverse of the current casing state, so that if there is no ASCII
+    # letter following this one, SUB will be the control code used
+    my $upper_next;
+    if ($upper_c) {
+      $upper_next = 0;
+    } else {
+      $upper_next = 1;
+    }
+    
+    # Scan any remaining characters in the string until we reach the end
+    # of the string or find an ASCII letter; if we find an ASCII letter,
+    # store its case in upper_next
+    for(my $j = $i + 1; $j <= $#stra; $j++) {
+      # Get the character
+      my $c2 = ord($stra[$j]);
+      
+      # If we found a letter, set the upper_next flag to match its case
+      # and leave the loop
+      if (($c2 >= $ASC_UPPER_A) and ($c2 <= $ASC_UPPER_Z)) {
+        # Uppercase
+        $upper_next = 1;
+        last;
+      
+      } elsif (($c2 >= $ASC_LOWER_A) and ($c2 <= $ASC_LOWER_Z)) {
+        # Lowercase
+        $upper_next = 0;
+        last;
+      }
+    }
+    
+    # upper_next is now set to the case of the next ASCII letter in the
+    # string (or the inverse of the current case if no more ASCII 
+    # letters in string), so determine which control code needs to be
+    # inserted as c2 and change casing state if SI or SO
+    my $cct;
+    if ($upper_next == $upper_c) {
+      # The case of the next letter matches the case of the current
+      # letter, so use an SI if this case is uppercase or an SO if this
+      # case is lowercase, and update the casing state to match this
+      # case
+      if ($upper_c) {
+        $cct = $ASC_CTL_SI;
+      } else {
+        $cct = $ASC_CTL_SO;
+      }
+      $upper_state = $upper_c;
+      
+    } else {
+      # The case of the current letter does not match the case of the
+      # next letter (or there is no next letter), so use a SUB control
+      # code and do not update the casing state
+      $cct = $ASC_CTL_SUB;
+    }
+    
+    # Insert the control code before the current character in the string
+    # array
+    splice @stra, $i, 0, chr($cct);
+    
+    # Increment i to account for the inserted control code
+    $i++;
+  }
+  
+  # Rejoin all the characters in the array into the string again
+  $str = join "", @stra;
+  
+  # Casing conversion may have extended the length, so do a length check
+  # once again
+  (length($str) <= $LENGTH_LIMIT) or die "Input encoding too long";
+  
+  # Split into invariant and oplist ------------------------------------
+
+  # Derive an insertion map from the string
+  my @ar = deriveInsertions($str);
+
+  # Replace the string with an invariant string derived from it and the
+  # insertion map
+  $str = deriveInvariant($str, \@ar); 
+  
+  # Convert the insertion map into an oplist
+  @ar = imapToOplist(\@ar);
+  
+  # Delta array encoding -----------------------------------------------
+  
+  # Length state starts out with length of invariant string
+  my $ls = length($str);
+  
+  # Set initial coordinate state
+  my $c_p = 0;
+  my $c_n = 1;
+  
+  # Now go through the oplist and replace each element with a delta
+  # encoding so that the oplist will be transformed into a delta array
+  for(my $i = 0; $i <= $#ar; $i++) {
+    
+    # Get current element reference
+    my $x = $ar[$i];
+    
+    # Compute the delta using the formula from DeltaEncoding.md
+    my $d = (($x->[1] - $c_n) * ($ls + 1)) - $c_p + $x->[0];
+    
+    # Update state
+    $c_p = $x->[0];
+    $c_n = $x->[1];
+    $ls++;
+    
+    # Replace current array element with the delta
+    $ar[$i] = $d;
+  }
+  
+  # Start the delta suffix out empty and then add each encoded value
+  my $ds = "";
+  for my $dv (@ar) {
+    $ds = $ds . encodeFlex($dv);
+  }
+  
+  # If delta suffix is empty, replace it with special marker aa
+  if (length($ds) < 1) {
+    $ds = "aa";
+  }
+  
+  # Final assembly -----------------------------------------------------
+  
+  # If invariant string is not empty, insert a hyphen at the start of
+  # the delta suffix
+  if (length($str) > 0) {
+    $ds = '-' . $ds;
+  }
+  
+  # Split invariant string into a sequence of zero or more non-period
+  # characters followed by a sequence of zero or more period and
+  # non-period characters
+  ($str =~ /^([^\.]*)(.*)$/) or die "Unexpected";
+  my $saa = $1;
+  my $sbb = $2;
+  
+  # Assemble the final string
+  $str = $PREFIX_ENCODE . $saa . $ds . $sbb;
+  
+  # Final length check
+  (length($str) <= $LENGTH_LIMIT) or die "Input encoding too long";
+  
+  # We should have a StrictName
+  (isStrictName($str)) or die "Encoding is not strict";
+  
+  # Return the encoded result
+  return $str;
+}
+
+# Finish with something that evaluates to true
+#
+1;
