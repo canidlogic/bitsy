@@ -12,7 +12,7 @@ use Unicode::Normalize;
 
 # Symbols to export by default
 #
-our @EXPORT = qw(encodeBitsy);
+our @EXPORT = qw(decodeBitsy encodeBitsy);
 
 #
 # Constants
@@ -905,7 +905,7 @@ sub decodeFlex {
   (length($str) >= 2) or die "Invalid parameter value, stopped";
   
   # Convert string to lowercase
-  $str = $str =~ tr/A-Z/a-z/;
+  $str =~ tr/A-Z/a-z/;
   
   # Split into first character and trailing characters
   my $str_first = substr $str, 0, 1;
@@ -1397,6 +1397,317 @@ sub encodeBitsy {
   (isStrictName($str)) or die "Encoding is not strict";
   
   # Return the encoded result
+  return $str;
+}
+
+=item decodeBitsy(str)
+
+Given a Bitsy-encoded string value, return the original string value.
+
+A fault occurs if there is a problem with the given parameter or with
+decoding from Bitsy.  Use an eval block to catch encoding failures.
+
+=cut
+
+sub decodeBitsy {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong parameter count, stopped";
+  
+  # Get and check parameter
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  $str = "$str";
+  
+  # The input should be a StrictName
+  (isStrictName($str)) or die "Input is not StrictName";
+  
+  # Letter case can not be trusted, so convert everything to lowercase
+  $str =~ tr/A-Z/a-z/;
+  
+  # If the input is not at least four characters, or it does not start
+  # with xz-- then it had a special encoding, so handle the special
+  # decoding
+  if (length($str) < 4) {
+    # Special encoding with no prefix, and we've already converted all
+    # letters to lowercase, so return as-is
+    return $str;
+    
+  } elsif (not ($str =~ /^xz--/)) {
+    # Special encoding, check which kind
+    if ($str =~ /^xq--/) {
+      # Escaping prefix, first make sure it is at least six characters
+      # which is required for the suffix
+      (length($str) >= 6) or die "Invalid escape encoding";
+      
+      # Split string into a sequence of one or more non-period
+      # characters, a suffix, and a sequence of zero or more period and
+      # non-period characters
+      ($str =~ /^([^\.]+)(-[a-z])(.*)$/) or
+        die "Invalid escape encoding";
+      my $sa  = $1;
+      my $suf = $2;
+      my $sb  = $3;
+      
+      # Interpret the suffix
+      if ($suf eq "-q") {
+        # First two characters of file name need to be xq, and they
+        # already are xq, so we don't need to do anything but rejoin
+        # without suffix
+        $str = $sa . $sb;
+        
+      } elsif ($suf eq "-z") {
+        # Replace first two characters of file name with xz
+        $str = "xz" . substr($sa, 2) . $sb;
+        
+      } elsif ($suf eq "-x") {
+        # Drop the first four characters of file name
+        $str = substr($sa, 4) . $sb;
+        
+      } else {
+        # Unrecognized suffix
+        die "Invalid escape encoding";
+      }
+      
+      # Now that suffix is interpreted and everything has been converted
+      # to lowercase already, return the decoded file name
+      return $str;
+      
+    } else {
+      # No prefix, and we've already converted all letters to lowercase,
+      # so return as-is
+      return $str;
+    }
+  }
+  
+  # GENERAL DECODING PROCEDURE =========================================
+  
+  # Split into invariant and delta strings -----------------------------
+  
+  # Split string into xz-- prefix, a "label" that is a sequence of one
+  # or more non-period characters, and a final sequence of zero or more
+  # period and non-period characters
+  ($str =~ /^xz--([^\.]+)(.*)$/) or die "Invalid xz format";
+  my $strlabel = $1;
+  my $strfinal = $2;
+  
+  # Split the label into an initial and a delta suffix (without a
+  # hyphen)
+  my $strinitial;
+  my $strdelta;
+  if ($strlabel =~ /-/) {
+    # At least one hyphen
+    ($strlabel =~ /^(.*)-([^\-]+)$/) or die "Invalid xz format";
+    $strinitial = $1;
+    $strdelta   = $2
+    
+  } else {
+    # No hyphens, so whole thing is delta string
+    $strinitial = "";
+    $strdelta = $strlabel;
+  }
+  
+  # Join the initial and the final to get the invariant string
+  $str = $strinitial . $strfinal;
+  
+  # Delta suffix may not be empty
+  (length($strdelta) > 0) or die "Delta suffix is empty";
+  
+  # If delta suffix is special marker aa, change it to empty
+  if ($strdelta eq "aa") {
+    $strdelta = "";
+  }
+  
+  # Split delta suffix into array --------------------------------------
+  
+  # Begin with an empty delta array
+  my @ar;
+  
+  # Go through delta suffix and split at FlexDelta boundaries
+  my @sda = split //, $strdelta;
+  for(my $i = 0; $i <= $#sda; $i++) {
+    # Get current character code
+    my $c = ord($sda[$i]);
+    
+    # Let j be the length of this FlexDelta substring, based on the 
+    # first letter range from the "char/first" table in FlexDelta.md
+    my $j;
+    if (($c >= $ASC_LOWER_A) and ($c < $ASC_LOWER_M)) {
+      $j = 2;
+    
+    } elsif (($c >= $ASC_LOWER_M) and ($c < $ASC_LOWER_S)) {
+      $j = 3;
+      
+    } elsif (($c >= $ASC_LOWER_S) and ($c < $ASC_LOWER_Y)) {
+      $j = 4;
+      
+    } elsif (($c == $ASC_LOWER_Y) or ($c == $ASC_LOWER_Z) or
+                (($c >= $ASC_ZERO) and ($c < $ASC_FOUR))) {
+      $j = 5;
+      
+    } elsif (($c >= $ASC_FOUR) and ($c <= $ASC_NINE)) {
+      $j = 6;
+      
+    } else {
+      die "Invalid characters in delta suffix";
+    }
+    
+    # Find index of last character in this element and make sure it is a
+    # valid index within the delta suffix
+    $j = $i + $j - 1;
+    ($j <= $#sda) or die "Failed to parse delta suffix";
+    
+    # Extract the current FlexDelta substring and add it to delta array
+    push @ar, (join("", @sda[$i .. $j]));
+    
+    # Set i to j so that next loop iteration will start at index after j
+    $i = $j;
+  }
+  
+  # Decode delta array into oplist -------------------------------------
+  
+  # Transform each element in delta array into numeric integer delta
+  # value
+  for my $a (@ar) {
+    $a = decodeFlex($a);
+  }
+  
+  # Initial delta decoding state has ls as the length of the invariant
+  # string and (c_p, c_n) as (0, 1)
+  my $ls = length($str);
+  my $c_p = 0;
+  my $c_n = 1;
+  
+  # Transform each element in delta array from numeric integer delta
+  # value into insertion op to yield the oplist
+  for my $a (@ar) {
+    # Compute t value by applying delta to current position
+    my $t = $c_p + $a;
+    
+    # Use t to compute the new position and codepoint value
+    my $i_p = ($t % ($ls + 1));
+    my $i_n = $c_n + int($t / ($ls + 1));
+    
+    # Check that numeric codepoint value doesn't exceed Unicode
+    ($i_n <= $UC_MAX) or die "Delta exceeds maximum codepoint";
+    
+    # Replace current array element with the decoded insertion op
+    $a = [$i_p, $i_n];
+    
+    # Update state
+    $ls++;
+    $c_p = $i_p;
+    $c_n = $i_n;
+  }
+  
+  # Reconstruct the full string with control codes ---------------------
+  
+  # Convert the oplist to an insertion map
+  @ar = oplistToImap(\@ar, length($str));
+  
+  # Apply the insertion map to the invariant string to reconstruct the
+  # full string with control codes
+  $str = reconstruct($str, \@ar);
+  
+  # Apply casing control codes -----------------------------------------
+  
+  # Start with casing state in lowercase
+  my $upper_state = 0;
+  
+  # Go through the string and interpret casing controls
+  my @saa = split //, $str;
+  for(my $i = 0; $i <= $#saa; $i++) {
+    # Get current codepoint
+    my $c = ord($saa[$i]);
+    
+    # Handle control codes and ASCII letters (which are all lowercase at
+    # this point)
+    if (($c >= $ASC_LOWER_A) and ($c <= $ASC_LOWER_Z)) {
+      # Lowercase letter; if casing state is uppercase, change this
+      # letter to uppercase
+      if ($upper_state) {
+        splice @saa, $i, 1, (uc chr($c));
+      }
+      
+    } elsif ($c == $ASC_CTL_SI) {
+      # SI control, so switch casing state to uppercase
+      $upper_state = 1;
+      
+    } elsif ($c == $ASC_CTL_SO) {
+      # SO control, so switch casing state to lowercase
+      $upper_state = 0;
+      
+    } elsif ($c == $ASC_CTL_SUB) {
+      # Invert next letter, so first make sure that there is a next
+      # character and that it is a letter, which is always lowercase at
+      # this point
+      ($i < $#saa) or die "Invalid SUB casing control";
+      
+      $c = ord($saa[$i + 1]);
+      (($c >= $ASC_LOWER_A) and ($c <= $ASC_LOWER_Z)) or
+        die "Invalid SUB casing control";
+      
+      # Increment i so that we are at the inverted letter position and
+      # so we will skip over this letter on next loop iteration
+      $i++;
+      
+      # Next letter is always lowercase at this point, so switch it to
+      # uppercase if in lowercase casing state, otherwise leave it alone
+      if (not $upper_state) {
+        splice @saa, $i, 1, (uc chr($c));
+      }
+    }
+  }
+  
+  # Rejoin the string
+  $str = join "", @saa;
+  
+  # Drop all SI SO SUB casing control codes from the string
+  $str =~ s/[\x{0e}\x{0f}\x{1a}]//g;
+  
+  # Apply dot control codes --------------------------------------------
+  
+  # Replace all RS control codes with ASCII periods
+  $str =~ s/\x{1e}/\./g;
+  
+  # Normalization and final checking -----------------------------------
+  
+  # Normalize to NFC
+  $str = NFC($str);
+  
+  # Make sure result is not empty
+  (length($str) > 0) or die "Result is empty";
+  
+  # Go through each codepoint of the input string and verify that no
+  # ASCII control codes, no slashes, everything in Unicode range, and no
+  # surrogates
+  for my $s (split //, $str) {
+  
+    # Get current character code
+    my $c = ord($s);
+    
+    # Check that not an ASCII control
+    (($c > $ASC_CTL_MAX) and ($c != $ASC_CTL_DEL)) or
+      die "Result contains unrecognized ASCII control codes";
+    
+    # Check that no forward slashes
+    ($c != $ASC_SLASH) or die "Result contains forward slashes";
+    
+    # Check that no backslashes
+    ($c != $ASC_BACKSLASH) or die "Result contains backslashes";
+    
+    # Check that in Unicode range
+    ($c <= $UC_MAX) or die "Result is outside of Unicode range";
+    
+    # Check that not a surrogate
+    (($c < $UC_SURROGATE_MIN) or ($c > $UC_SURROGATE_MAX)) or
+      die "Result contains surrogates";
+  }
+  
+  # Make sure length in codepoints does not exceed limit
+  (length($str) <= $LENGTH_LIMIT) or die "Input is too long";
+  
+  # All checks pass, so return the decoded original file name
   return $str;
 }
 
