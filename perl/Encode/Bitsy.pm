@@ -5,6 +5,27 @@ use strict;
 # Core dependencies
 use Unicode::Normalize;
 
+=head1 NAME
+
+Encode::Bitsy - Encode and decode Bitsy file names.
+
+=head1 SYNOPSIS
+
+  use Encode::Bitsy;
+  
+  my $encoded = encodeBitsy('ExampleName.txt');
+  my $decoded = decodeBitsy('xz--ExampleName-leai.txt');
+
+=head1 DESCRIPTION
+
+Bitsy is an encoding system that allows you to represent case-sensitive,
+Unicode file names in environments that are case-insensitive with
+respect to file names or where Unicode in file names may be unreliable.
+
+See the documentation folder for further details about Bitsy encoding.
+
+=cut
+
 #
 # Export lists
 # ============
@@ -1002,7 +1023,11 @@ sub decodeFlex {
   return $result;
 }
 
-=item encodeBitsy(str)
+=head1 FUNCTIONS
+
+=over 4
+
+=item B<encodeBitsy(str)>
 
 Given an original string value, return the Bitsy-encoded string 
 corresponding to that value.
@@ -1400,7 +1425,7 @@ sub encodeBitsy {
   return $str;
 }
 
-=item decodeBitsy(str)
+=item B<decodeBitsy(str)>
 
 Given a Bitsy-encoded string value, return the original string value.
 
@@ -1710,6 +1735,39 @@ sub decodeBitsy {
   # All checks pass, so return the decoded original file name
   return $str;
 }
+
+=back
+
+=head1 AUTHOR
+
+Noah Johnson, C<noah.johnson@loupmail.com>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2022 Multimedia Data Technology Inc.
+
+MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files
+(the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+=cut
 
 # Finish with something that evaluates to true
 #
