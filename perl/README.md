@@ -10,6 +10,6 @@ Here is a one-liner for testing the encode function:
 
 Here is a one-liner for testing the decode function:
 
-    perl -I. -e "use Encode::Bitsy; print decodeBitsy(\"...\"); print \"\\n\";"
+    perl -I. -e "use Encode::Bitsy; binmode(STDOUT, \":encoding(UTF-8)\"); print decodeBitsy(\"...\"); print \"\\n\";"
 
 In both cases, replace `...` with the input to encode or decode.  Since we are in the midst of a quoted string argument in a quoted string argument, you must double-escape any double quotes in the input with `\\\"` and other special characters need to be double-escaped in the same way.  Also, use `\\x{f6}` to insert Unicode codepoint U+00F6 for example.
