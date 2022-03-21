@@ -15,6 +15,12 @@ Encode::Bitsy - Encode and decode Bitsy file names.
   
   my $encoded = encodeBitsy('ExampleName.txt');
   my $decoded = decodeBitsy('xz--ExampleName-leai.txt');
+  
+  use Encode::Bitsy qw(isStrictName);
+  
+  if (isStrictName($str)) {
+    ...
+  }
 
 =head1 DESCRIPTION
 
@@ -34,6 +40,10 @@ See the documentation folder for further details about Bitsy encoding.
 # Symbols to export by default
 #
 our @EXPORT = qw(decodeBitsy encodeBitsy);
+
+# Symbols to export on request
+#
+our @EXPORT_OK = qw(isStrictName);
 
 #
 # Constants
@@ -193,49 +203,6 @@ sub isAlmostStrict {
   
   # If we got here, string passes the check
   return 1;
-}
-
-# Check whether a given string is a StrictName.
-# 
-# Parameters:
-# 
-#   1 : string - the string to check
-# 
-# Return:
-# 
-#   1 if a StrictName, 0 otherwise
-#
-sub isStrictName {
-  
-  # Check parameter count
-  ($#_ == 0) or die "Wrong parameter count, stopped";
-  
-  # Get and check parameters
-  my $str = shift;
-  (not ref($str)) or die "Wrong parameter type, stopped";
-  $str = "$str";
-  
-  # Check if almost a strict name
-  (isAlmostStrict($str)) or return 0;
-  
-  # If we got here, we just have to check constraint 7, so get the
-  # device candidate, which is the whole string if no dot is present,
-  # the empty string if dot is first character, or else the substring
-  # up to but excluding the first dot
-  $str =~ /^[^\.]*/;
-  my $dc = $1;
-  
-  # Check if device candidate matches one of the reserved names
-  if (($dc =~ /^aux$/i) or
-      ($dc =~ /^com[0-9]$/i) or
-      ($dc =~ /^con$/i) or
-      ($dc =~ /^lpt[0-9]$/i) or
-      ($dc =~ /^nul$/) or
-      ($dc =~ /^prn$/)) {
-    return 0;
-  } else {
-    return 1;
-  }
 }
 
 # Given a Unicode string, derive an insertion map for it.
@@ -1734,6 +1701,51 @@ sub decodeBitsy {
   
   # All checks pass, so return the decoded original file name
   return $str;
+}
+
+=item B<isStrictName(str)>
+
+Check whether a given string value conforms to the StrictName
+constraints defined in StrictName.md.
+
+Returns 1 if given string is a StrictName, 0 otherwise.
+
+This function is not exported by default.  You must explicitly request
+it when you import Bitsy.
+
+=cut
+
+sub isStrictName {
+  
+  # Check parameter count
+  ($#_ == 0) or die "Wrong parameter count, stopped";
+  
+  # Get and check parameters
+  my $str = shift;
+  (not ref($str)) or die "Wrong parameter type, stopped";
+  $str = "$str";
+  
+  # Check if almost a strict name
+  (isAlmostStrict($str)) or return 0;
+  
+  # If we got here, we just have to check constraint 7, so get the
+  # device candidate, which is the whole string if no dot is present,
+  # the empty string if dot is first character, or else the substring
+  # up to but excluding the first dot
+  $str =~ /^[^\.]*/;
+  my $dc = $1;
+  
+  # Check if device candidate matches one of the reserved names
+  if (($dc =~ /^aux$/i) or
+      ($dc =~ /^com[0-9]$/i) or
+      ($dc =~ /^con$/i) or
+      ($dc =~ /^lpt[0-9]$/i) or
+      ($dc =~ /^nul$/) or
+      ($dc =~ /^prn$/)) {
+    return 0;
+  } else {
+    return 1;
+  }
 }
 
 =back
